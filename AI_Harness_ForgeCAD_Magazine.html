@@ -1,0 +1,2941 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Engineering Design Review &mdash; Geometry Agent Harness</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&amp;family=JetBrains+Mono:wght@300;400;500;700&amp;family=Geist:wght@300;400;500;600;700;900&amp;display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════
+   DESIGN SYSTEM
+   ═══════════════════════════════════════════ */
+:root {
+  --ink: #080F18;
+  --navy: #0F1A2E;
+  --slate: #1C2A42;
+  --steel: #2E4262;
+  --mist: #4A6382;
+  --ash: #7B8FA4;
+  --silver: #A8B5C4;
+  --cloud: #E6EBF0;
+  --snow: #F3F5F8;
+  --paper: #FAFBFC;
+  --white: #FFFFFF;
+
+  --blue: #2563EB;
+  --blue-light: #60A5FA;
+  --blue-pale: #DBEAFE;
+  --blue-deep: #1D4ED8;
+
+  --amber: #D97706;
+  --amber-pale: #FEF3C7;
+  --red: #DC2626;
+  --red-pale: #FEE2E2;
+  --green: #059669;
+  --green-pale: #D1FAE5;
+
+  --gold: #FFB800;
+  --gold-hot: #FFCB2E;
+  --lime: #BEDB39;
+  --violet: #7C4DFF;
+  --teal: #00A39C;
+  --blood: #C23A1F;
+  --diag-ink: #0A0A08;
+  --diag-panel: #0F0F0E;
+  --diag-line: #26241C;
+  --diag-paper: #EFE7D6;
+  --diag-ghost: #A39F93;
+
+  --serif: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  scroll-behavior: smooth;
+  font-size: 16px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--silver) transparent;
+}
+
+body {
+  font-family: var(--sans);
+  font-weight: 400;
+  color: var(--slate);
+  background: var(--paper);
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+::selection { background: var(--blue-pale); color: var(--navy); }
+
+/* ═══════════════════════════════════════════
+   READING PROGRESS BAR
+   ═══════════════════════════════════════════ */
+.progress-bar {
+  position: fixed;
+  top: 0; left: 0;
+  width: 0%;
+  height: 2px;
+  background: var(--blue);
+  z-index: 1000;
+  transition: width 0.1s linear;
+}
+
+/* ═══════════════════════════════════════════
+   STICKY NAV
+   ═══════════════════════════════════════════ */
+.nav {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 999;
+  padding: 0 2rem;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition: all 0.4s var(--ease-out);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-100%);
+}
+
+.nav.visible {
+  pointer-events: auto;
+  opacity: 1;
+  transform: translateY(0);
+  background: rgba(250,251,252,0.92);
+  backdrop-filter: blur(16px) saturate(1.5);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+
+.nav-brand { font-weight: 600; color: var(--navy); }
+.nav-section { color: var(--mist); font-weight: 500; }
+
+/* ═══════════════════════════════════════════
+   HERO — FULL BLEED COVER
+   ═══════════════════════════════════════════ */
+.hero {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: var(--ink);
+  overflow: hidden;
+  padding: 6vh 6vw;
+}
+
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  display: none;
+}
+
+/* Isometric CAD wireframe grid */
+.hero-wireframe {
+  position: absolute;
+  inset: 0;
+  display: none;
+}
+
+.hero-content {
+  position: relative;
+  z-index: 2;
+  max-width: 900px;
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--blue-light);
+  margin-bottom: 2rem;
+  opacity: 0;
+  animation: heroIn 1s 0.2s var(--ease-out) forwards;
+}
+
+.hero-badge::before {
+  content: '';
+  width: 32px; height: 1px;
+  background: var(--blue-light);
+}
+
+.hero h1 {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: clamp(3.5rem, 9vw, 7.5rem);
+  line-height: 0.95;
+  color: var(--white);
+  letter-spacing: 0;
+  margin-bottom: 0.1em;
+  opacity: 0;
+  animation: heroIn 1.2s 0.4s var(--ease-out) forwards;
+}
+
+.hero h1 span {
+  display: block;
+  font-style: italic;
+  color: var(--blue-light);
+}
+
+.hero-deck {
+  font-size: clamp(1rem, 1.8vw, 1.25rem);
+  font-weight: 300;
+  color: var(--silver);
+  max-width: 520px;
+  margin-top: 1.5rem;
+  line-height: 1.65;
+  opacity: 0;
+  animation: heroIn 1s 0.7s var(--ease-out) forwards;
+}
+
+.hero-meta {
+  display: flex;
+  gap: 2.5rem;
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  opacity: 0;
+  animation: heroIn 1s 1s var(--ease-out) forwards;
+}
+
+.hero-meta dt {
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-bottom: 0.2rem;
+}
+
+.hero-meta dd {
+  font-size: 0.9rem;
+  color: var(--silver);
+  font-weight: 300;
+}
+
+@keyframes heroIn {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ═══════════════════════════════════════════
+   LAYOUT PRIMITIVES
+   ═══════════════════════════════════════════ */
+.wrap        { max-width: 1120px; margin: 0 auto; padding: 0 2rem; }
+.wrap-narrow { max-width: 720px; margin: 0 auto; padding: 0 2rem; }
+.wrap-wide   { max-width: 1320px; margin: 0 auto; padding: 0 2rem; }
+
+.pad-section { padding: 7rem 0; }
+.pad-section-sm { padding: 5rem 0; }
+
+.bg-white { background: var(--white); }
+.bg-snow  { background: var(--snow); }
+.bg-ink   { background: var(--ink); color: var(--silver); }
+
+/* ═══════════════════════════════════════════
+   TYPOGRAPHY
+   ═══════════════════════════════════════════ */
+.sec-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--blue);
+  margin-bottom: 0.75rem;
+}
+
+.sec-title {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  line-height: 1.1;
+  color: var(--navy);
+  letter-spacing: 0;
+  margin-bottom: 1.25rem;
+}
+
+.sec-subtitle {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 1.5rem;
+  color: var(--navy);
+  margin-bottom: 0.75rem;
+  margin-top: 3rem;
+}
+
+.body-text {
+  font-size: 1.05rem;
+  line-height: 1.8;
+  color: var(--steel);
+  margin-bottom: 1.5rem;
+}
+
+.body-text strong { color: var(--navy); font-weight: 600; }
+
+.lede {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 1.35rem;
+  line-height: 1.65;
+  color: var(--mist);
+  margin-bottom: 2.5rem;
+}
+
+/* ═══════════════════════════════════════════
+   PULL QUOTE
+   ═══════════════════════════════════════════ */
+.pull-quote {
+  margin: 4rem -2rem;
+  padding: 3rem 2.5rem;
+  border-left: 3px solid var(--blue);
+  background: var(--snow);
+}
+
+.pull-quote p {
+  font-family: var(--serif);
+  font-size: 1.5rem;
+  font-style: italic;
+  line-height: 1.5;
+  color: var(--navy);
+  margin-bottom: 0.75rem;
+}
+
+.pull-quote cite {
+  font-family: var(--sans);
+  font-style: normal;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+
+/* ═══════════════════════════════════════════
+   DIVIDER
+   ═══════════════════════════════════════════ */
+.hr {
+  border: none;
+  height: 1px;
+  background: var(--cloud);
+  margin: 0;
+}
+
+/* ═══════════════════════════════════════════
+   CAPABILITY GRID
+   ═══════════════════════════════════════════ */
+.cap-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--cloud);
+  border: 1px solid var(--cloud);
+  margin: 3rem 0;
+}
+
+.cap-cell {
+  background: var(--white);
+  padding: 2rem;
+  transition: background 0.3s ease;
+}
+
+.cap-cell:hover { background: var(--snow); }
+
+.cap-cell h4 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--navy);
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cap-cell h4 svg {
+  width: 16px; height: 16px;
+  color: var(--blue);
+  flex-shrink: 0;
+}
+
+.cap-cell p {
+  font-size: 0.8rem;
+  color: var(--ash);
+  line-height: 1.55;
+}
+
+/* ═══════════════════════════════════════════
+   ARCHITECTURE LAYERS — STACKED BAR
+   ═══════════════════════════════════════════ */
+.arch-stack {
+  margin: 3rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.arch-layer {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  min-height: 100px;
+  transition: all 0.35s var(--ease-out);
+  cursor: default;
+}
+
+.arch-layer:hover { filter: brightness(1.08); }
+
+.arch-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: rgba(255,255,255,0.5);
+  background: rgba(0,0,0,0.15);
+}
+
+.arch-body {
+  padding: 1.5rem 2rem;
+  color: var(--white);
+}
+
+.arch-body h3 {
+  font-family: var(--serif);
+  font-size: 1.15rem;
+  font-weight: 400;
+  margin-bottom: 0.4rem;
+}
+
+.arch-body p {
+  font-size: 0.82rem;
+  line-height: 1.6;
+  opacity: 0.75;
+  max-width: 600px;
+}
+
+.arch-l1 { background: #0F172A; }
+.arch-l2 { background: #1E293B; }
+.arch-l3 { background: var(--blue-deep); }
+.arch-l4 { background: #4338CA; }
+.arch-l5 { background: #6D28D9; }
+
+/* ═══════════════════════════════════════════
+   EDITORIAL ARCHITECTURE DIAGRAMS
+   ═══════════════════════════════════════════ */
+.diagram-suite {
+  margin: 4rem 0 0;
+  display: grid;
+  gap: 2rem;
+}
+
+.diagram-panel {
+  position: relative;
+  overflow: hidden;
+  padding: 2rem;
+  background:
+    radial-gradient(900px 420px at 82% -10%, rgba(255,184,0,0.11), transparent 62%),
+    radial-gradient(680px 380px at 5% 100%, rgba(124,77,255,0.08), transparent 58%),
+    var(--diag-panel);
+  border: 1px solid var(--diag-line);
+  color: var(--diag-paper);
+  box-shadow: 0 30px 60px -36px rgba(0,0,0,0.8);
+}
+
+.diagram-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.06;
+  background-image:
+    linear-gradient(rgba(239,231,214,0.22) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(239,231,214,0.16) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: linear-gradient(180deg, rgba(0,0,0,0.7), transparent 88%);
+}
+
+.diagram-head {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--diag-line);
+  margin-bottom: 1.25rem;
+}
+
+.diagram-kicker {
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.diagram-kicker span { color: var(--diag-paper); }
+
+.diagram-zoom {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--diag-ghost);
+  white-space: nowrap;
+}
+
+.diagram-scroll {
+  position: relative;
+  z-index: 1;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+}
+
+.diagram-svg {
+  display: block;
+  width: 100%;
+  min-width: 920px;
+  height: auto;
+  font-family: var(--mono);
+}
+
+.diagram-note {
+  position: relative;
+  z-index: 1;
+  margin-top: 1rem;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--diag-ghost);
+  line-height: 1.7;
+}
+
+.diagram-note b { color: var(--gold); font-weight: 500; }
+
+.diagram-ledger {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  margin-top: 1.25rem;
+  background: var(--diag-line);
+  border: 1px solid var(--diag-line);
+}
+
+.diagram-ledger div {
+  background: rgba(10,10,8,0.82);
+  padding: 1rem;
+}
+
+.diagram-ledger .k {
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 0.5rem;
+}
+
+.diagram-ledger .v {
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: #CFC8B1;
+}
+
+.worker-matrix {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  margin-top: 1.25rem;
+  background: var(--diag-line);
+  border: 1px solid var(--diag-line);
+}
+
+.worker-card {
+  min-height: 210px;
+  padding: 1.35rem;
+  background: rgba(10,10,8,0.88);
+  display: flex;
+  flex-direction: column;
+}
+
+.worker-card .sigil {
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--diag-ghost);
+  margin-bottom: 0.75rem;
+}
+
+.worker-card h4 {
+  font-family: var(--serif);
+  font-size: 1.35rem;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--diag-paper);
+  margin-bottom: 0.75rem;
+}
+
+.worker-card p {
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: #CFC8B1;
+  margin-bottom: 1rem;
+}
+
+.worker-card ul {
+  list-style: none;
+  margin-top: auto;
+  border-top: 1px dashed rgba(255,184,0,0.18);
+  padding-top: 0.65rem;
+}
+
+.worker-card li {
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--diag-ghost);
+  padding: 0.25rem 0;
+}
+
+.worker-card li span {
+  color: var(--gold);
+}
+
+/* ═══════════════════════════════════════════
+   DATA TABLE
+   ═══════════════════════════════════════════ */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 2rem 0;
+  font-size: 0.88rem;
+}
+
+.data-table thead {
+  position: sticky;
+  top: 52px;
+  z-index: 5;
+}
+
+.data-table thead th {
+  background: var(--navy);
+  color: var(--white);
+  padding: 0.75rem 1.25rem;
+  text-align: left;
+  font-weight: 500;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.data-table thead th:first-child { border-radius: 4px 0 0 0; }
+.data-table thead th:last-child  { border-radius: 0 4px 0 0; }
+
+.data-table tbody td {
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--cloud);
+  vertical-align: top;
+}
+
+.data-table tbody tr:hover td { background: var(--snow); }
+
+.tool-name {
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 0.82rem;
+  color: var(--blue);
+}
+
+.tool-integration {
+  font-size: 0.78rem;
+  color: var(--ash);
+}
+
+/* ═══════════════════════════════════════════
+   FLOW STEPS
+   ═══════════════════════════════════════════ */
+.flow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--cloud);
+  border: 1px solid var(--cloud);
+  margin: 3rem 0;
+  counter-reset: flow-step;
+}
+
+.flow-cell {
+  background: var(--white);
+  padding: 2rem;
+  counter-increment: flow-step;
+  position: relative;
+  transition: background 0.3s ease;
+}
+
+.flow-cell:hover { background: var(--snow); }
+
+.flow-cell::before {
+  content: counter(flow-step, decimal-leading-zero);
+  font-family: var(--mono);
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--cloud);
+  line-height: 1;
+  display: block;
+  margin-bottom: 1rem;
+}
+
+.flow-cell h4 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--navy);
+  margin-bottom: 0.5rem;
+}
+
+.flow-cell p {
+  font-size: 0.82rem;
+  color: var(--ash);
+  line-height: 1.6;
+}
+
+/* ═══════════════════════════════════════════
+   API ENDPOINTS
+   ═══════════════════════════════════════════ */
+.api-list {
+  margin: 2rem 0;
+  border: 1px solid var(--cloud);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.api-row {
+  display: grid;
+  grid-template-columns: 56px 1fr 1.4fr;
+  gap: 0;
+  border-bottom: 1px solid var(--cloud);
+  font-size: 0.85rem;
+  transition: background 0.2s ease;
+}
+
+.api-row:last-child { border-bottom: none; }
+.api-row:hover { background: var(--snow); }
+
+.api-method {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  padding: 0.7rem 0;
+}
+
+.m-post { background: #ECFDF5; color: var(--green); }
+.m-get  { background: var(--blue-pale); color: var(--blue-deep); }
+.m-ws   { background: var(--amber-pale); color: var(--amber); }
+
+.api-path {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--navy);
+  padding: 0.7rem 1rem;
+  display: flex;
+  align-items: center;
+  border-left: 1px solid var(--cloud);
+}
+
+.api-desc {
+  font-size: 0.8rem;
+  color: var(--ash);
+  padding: 0.7rem 1rem;
+  display: flex;
+  align-items: center;
+  border-left: 1px solid var(--cloud);
+}
+
+/* ═══════════════════════════════════════════
+   METRICS
+   ═══════════════════════════════════════════ */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--cloud);
+  border: 1px solid var(--cloud);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 3rem 0;
+}
+
+.metric {
+  background: var(--white);
+  padding: 2rem 1.5rem;
+  text-align: center;
+}
+
+.metric-val {
+  font-family: var(--mono);
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--navy);
+  line-height: 1;
+  margin-bottom: 0.4rem;
+}
+
+.metric-label {
+  font-size: 0.72rem;
+  color: var(--ash);
+  line-height: 1.4;
+}
+
+/* ═══════════════════════════════════════════
+   TIMELINE / ROADMAP
+   ═══════════════════════════════════════════ */
+.roadmap {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--cloud);
+  border: 1px solid var(--cloud);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 3rem 0;
+}
+
+.phase {
+  background: var(--white);
+  padding: 2rem;
+}
+
+.phase-badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.6rem;
+  border-radius: 3px;
+  margin-bottom: 0.75rem;
+}
+
+.phase:nth-child(1) .phase-badge { background: var(--blue-pale); color: var(--blue-deep); }
+.phase:nth-child(2) .phase-badge { background: #EDE9FE; color: #6D28D9; }
+.phase:nth-child(3) .phase-badge { background: var(--green-pale); color: var(--green); }
+
+.phase-title {
+  font-family: var(--serif);
+  font-size: 1.25rem;
+  color: var(--navy);
+  margin-bottom: 1rem;
+}
+
+.phase-list {
+  list-style: none;
+}
+
+.phase-list li {
+  font-size: 0.82rem;
+  color: var(--steel);
+  line-height: 1.55;
+  padding: 0.4rem 0;
+  padding-left: 1rem;
+  position: relative;
+}
+
+.phase-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.75em;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--silver);
+}
+
+/* ═══════════════════════════════════════════
+   RISK TABLE
+   ═══════════════════════════════════════════ */
+.risk-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 2rem 0;
+  font-size: 0.85rem;
+}
+
+.risk-table thead th {
+  background: var(--navy);
+  color: var(--white);
+  padding: 0.7rem 1.25rem;
+  text-align: left;
+  font-weight: 500;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.risk-table thead th:first-child { border-radius: 4px 0 0 0; }
+.risk-table thead th:last-child  { border-radius: 0 4px 0 0; }
+
+.risk-table tbody td {
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid var(--cloud);
+  vertical-align: top;
+}
+
+.risk-table tbody tr:hover td { background: var(--snow); }
+
+.risk-name { font-weight: 600; color: var(--navy); }
+
+.sev {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+}
+
+.sev-high { background: var(--red-pale); color: var(--red); }
+.sev-med  { background: var(--amber-pale); color: var(--amber); }
+.sev-low  { background: var(--green-pale); color: var(--green); }
+
+.risk-mit { color: var(--steel); line-height: 1.6; }
+
+/* ═══════════════════════════════════════════
+   STATE MGMT — ICON LIST
+   ═══════════════════════════════════════════ */
+.state-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  margin: 2rem 0;
+}
+
+.state-item h4 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--navy);
+  margin-bottom: 0.3rem;
+}
+
+.state-item p {
+  font-size: 0.88rem;
+  color: var(--steel);
+  line-height: 1.65;
+}
+
+/* ═══════════════════════════════════════════
+   FOOTER
+   ═══════════════════════════════════════════ */
+.footer {
+  background: var(--ink);
+  padding: 4rem 2rem;
+  text-align: center;
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+.footer-brand {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-bottom: 0.5rem;
+}
+
+.footer p {
+  font-size: 0.78rem;
+  color: var(--mist);
+}
+
+/* ═══════════════════════════════════════════
+   SCROLL REVEAL
+   ═══════════════════════════════════════════ */
+.reveal {
+  opacity: 0;
+  transform: translateY(32px);
+  transition: opacity 0.7s var(--ease-out), transform 0.7s var(--ease-out);
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* stagger children */
+.reveal-stagger > * {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.5s var(--ease-out), transform 0.5s var(--ease-out);
+}
+
+.reveal-stagger.is-visible > * { opacity: 1; transform: translateY(0); }
+.reveal-stagger.is-visible > *:nth-child(1) { transition-delay: 0.05s; }
+.reveal-stagger.is-visible > *:nth-child(2) { transition-delay: 0.1s; }
+.reveal-stagger.is-visible > *:nth-child(3) { transition-delay: 0.15s; }
+.reveal-stagger.is-visible > *:nth-child(4) { transition-delay: 0.2s; }
+.reveal-stagger.is-visible > *:nth-child(5) { transition-delay: 0.25s; }
+.reveal-stagger.is-visible > *:nth-child(6) { transition-delay: 0.3s; }
+.reveal-stagger.is-visible > *:nth-child(7) { transition-delay: 0.35s; }
+.reveal-stagger.is-visible > *:nth-child(8) { transition-delay: 0.4s; }
+
+/* ═══════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════ */
+@media (max-width: 900px) {
+  .cap-grid     { grid-template-columns: repeat(2, 1fr); }
+  .flow         { grid-template-columns: 1fr; }
+  .metrics      { grid-template-columns: repeat(2, 1fr); }
+  .roadmap      { grid-template-columns: 1fr; }
+  .state-grid   { grid-template-columns: 1fr; }
+  .diagram-ledger { grid-template-columns: 1fr 1fr; }
+  .worker-matrix { grid-template-columns: 1fr 1fr; }
+  .api-row      { grid-template-columns: 50px 1fr; }
+  .api-desc     { display: none; }
+  .hero { padding: 4vh 1.5rem; }
+  .hero-meta { flex-direction: column; gap: 1rem; }
+}
+
+@media (max-width: 540px) {
+  .cap-grid  { grid-template-columns: 1fr; }
+  .metrics   { grid-template-columns: 1fr 1fr; }
+  .diagram-panel { padding: 1.25rem; }
+  .diagram-head { align-items: flex-start; flex-direction: column; }
+  .diagram-ledger { grid-template-columns: 1fr; }
+  .worker-matrix { grid-template-columns: 1fr; }
+}
+
+/* ═══════════════════════════════════════════
+   DAREDEVIL MAGAZINE SKIN
+   Mirrors /Users/nshah/Desktop/daredevil-magazine (1).html
+   ═══════════════════════════════════════════ */
+:root {
+  --ink: #070707;
+  --ink-2: #0f0f0e;
+  --ink-3: #16160f;
+  --paper: #efe7d6;
+  --paper-2: #f5efe0;
+  --ghost: #a39f93;
+  --line: #26241c;
+  --line-paper: #1c1a12;
+  --gold: #ffb800;
+  --gold-hot: #ffcb2e;
+  --amber: #f7931d;
+  --blood: #c23a1f;
+  --copper: #b45c2e;
+  --violet: #7c4dff;
+  --cyan: #6fe3d1;
+  --teal: #00a39c;
+  --teal-dark: #002c3a;
+  --lime: #bedb39;
+  --shadow: 0 30px 60px -20px rgba(0,0,0,.6);
+  --maxw: 1320px;
+
+  --navy: var(--ink);
+  --slate: #d5cfb8;
+  --steel: #d5cfb8;
+  --mist: var(--ghost);
+  --ash: var(--ghost);
+  --silver: #d6cfb8;
+  --cloud: var(--line);
+  --snow: var(--ink);
+  --white: var(--paper);
+  --blue: var(--gold);
+  --blue-light: var(--gold);
+  --blue-pale: rgba(255,184,0,.14);
+  --blue-deep: var(--gold);
+  --amber-pale: rgba(247,147,29,.14);
+  --red: var(--blood);
+  --red-pale: rgba(194,58,31,.16);
+  --green: var(--teal);
+  --green-pale: rgba(0,163,156,.14);
+  --diag-ink: #0a0a08;
+  --diag-panel: var(--ink-2);
+  --diag-line: var(--line);
+  --diag-paper: var(--paper);
+  --diag-ghost: var(--ghost);
+  --serif: "Fraunces", Georgia, serif;
+  --sans: "Geist", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+html, body {
+  background: var(--ink);
+  color: var(--paper);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.55;
+  background:
+    radial-gradient(1200px 800px at 80% -10%, rgba(255,184,0,.08), transparent 60%),
+    radial-gradient(800px 600px at -10% 40%, rgba(124,77,255,.05), transparent 60%),
+    var(--ink);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 999;
+  opacity: .05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+::selection { background: var(--gold); color: var(--ink); }
+
+h1, h2, h3, h4,
+.sec-title, .sec-subtitle,
+.phase-title, .footer-brand {
+  font-family: var(--serif);
+  font-weight: 400;
+  line-height: .95;
+  letter-spacing: 0;
+  font-variation-settings: "opsz" 96, "SOFT" 50;
+}
+
+.progress-bar {
+  height: 1px;
+  background: var(--gold);
+}
+
+.nav {
+  height: auto;
+  padding: 18px 28px;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  background: linear-gradient(to bottom, rgba(7,7,7,.85), rgba(7,7,7,0));
+  border-bottom: 1px solid transparent;
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .2em;
+  z-index: 100;
+}
+
+.nav.visible {
+  background: rgba(7,7,7,.92);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.nav-brand {
+  color: var(--paper);
+  font-weight: 400;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nav-brand::before { content: "◇"; color: var(--gold); }
+.nav-brand::after { content: " / ISSUE 01"; color: var(--gold); }
+.nav-section { display: none; }
+.nav::after {
+  content: "01 · DECISION    02 · CONTEXT    03 · ARCHITECTURE    04 · RISKS    05 · MVP    06 · TRACE";
+  margin-left: auto;
+  color: var(--ghost);
+  font-weight: 300;
+}
+
+.hero {
+  min-height: 100vh;
+  padding: 120px 28px 24px;
+  justify-content: flex-start;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+}
+
+.hero::after {
+  content: "CAD";
+  position: absolute;
+  right: -5vw;
+  top: 38vh;
+  z-index: 0;
+  pointer-events: none;
+  user-select: none;
+  font-family: var(--serif);
+  font-weight: 300;
+  font-size: clamp(220px, 32vw, 580px);
+  line-height: .8;
+  letter-spacing: 0;
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(255,184,0,.18);
+  text-stroke: 1px rgba(255,184,0,.18);
+  font-variation-settings: "opsz" 144, "SOFT" 100;
+}
+
+.hero-bg {
+  display: none;
+}
+
+.hero-wireframe {
+  display: none;
+}
+
+.hero-content {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+.hero-badge,
+.hero h1,
+.hero-deck,
+.hero-meta {
+  opacity: 1;
+  animation: none;
+}
+
+.hero-badge {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  width: 100%;
+  gap: 20px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: .3em;
+  color: var(--gold);
+  margin-bottom: 40px;
+  padding-bottom: 40px;
+  border-bottom: 1px solid var(--line);
+  text-align: center;
+}
+
+.hero-badge::before {
+  content: "GEOMETRY RUNTIME × CAD AGENTS · CONFIDENTIAL";
+  width: auto;
+  height: auto;
+  background: none;
+  color: var(--ghost);
+  font-size: 11px;
+  letter-spacing: .18em;
+  text-align: left;
+}
+
+.hero-badge::after {
+  content: "FIELD MEMO · ENGINEERING LEADS";
+  color: var(--ghost);
+  font-size: 11px;
+  letter-spacing: .18em;
+  text-align: right;
+}
+
+.hero-badge > span {
+  min-width: 0;
+}
+
+.hero h1 {
+  font-family: var(--serif);
+  font-size: clamp(56px, 11vw, 220px);
+  font-weight: 300;
+  line-height: .88;
+  color: var(--paper);
+  background: linear-gradient(180deg, var(--paper) 10%, var(--paper) 60%, #8f856a 110%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-variation-settings: "opsz" 144, "SOFT" 100;
+}
+
+.hero h1 span {
+  display: block;
+  color: var(--gold);
+  -webkit-text-fill-color: var(--gold);
+  font-style: italic;
+}
+
+.hero-deck {
+  display: block;
+  max-width: 44ch;
+  color: #d6cfb8;
+  font-size: 15px;
+  line-height: 1.55;
+  margin-top: 34px;
+  padding-top: 28px;
+  border-top: 1px solid var(--line);
+}
+
+.hero-meta {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: 30px;
+  padding-top: 0;
+  border-top: none;
+}
+
+.hero-meta div {
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.hero-meta dt,
+.hero-meta dd {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+}
+
+.hero-meta dt { color: var(--ghost); }
+.hero-meta dd { color: var(--paper); margin-top: 6px; }
+
+.wrap,
+.wrap-wide,
+.wrap-narrow {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 0 28px;
+}
+
+.pad-section {
+  padding: 120px 0;
+}
+
+.bg-white {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.bg-snow,
+.bg-ink {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.sec-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .25em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 20px;
+}
+
+.bg-white .sec-label {
+  color: var(--blood);
+}
+
+.sec-title {
+  max-width: 10ch;
+  font-size: clamp(40px, 6vw, 88px);
+  color: var(--paper);
+}
+
+.bg-white .sec-title {
+  color: var(--ink);
+}
+
+.body-text {
+  max-width: 62ch;
+  color: #d5cfb8;
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+.bg-white .body-text,
+.bg-white .body-text strong {
+  color: #1c1a12;
+}
+
+.lede {
+  max-width: 64ch;
+  color: #e7e0c8;
+  font-family: var(--serif);
+  font-size: clamp(22px, 2.2vw, 32px);
+  font-style: normal;
+  font-weight: 300;
+  line-height: 1.3;
+  font-variation-settings: "opsz" 48, "SOFT" 60;
+}
+
+.bg-white .lede {
+  color: #1c1a12;
+}
+
+.sec-subtitle {
+  color: var(--paper);
+  font-size: clamp(26px, 3vw, 44px);
+}
+
+.bg-white .sec-subtitle {
+  color: var(--ink);
+}
+
+.hr {
+  background: var(--line);
+}
+
+.pull-quote {
+  position: relative;
+  margin: 60px 0;
+  padding: 60px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  border-left: none;
+  background: transparent;
+}
+
+.bg-white .pull-quote {
+  border-color: var(--line-paper);
+}
+
+.pull-quote::before {
+  content: "“";
+  position: absolute;
+  top: -20px;
+  left: -10px;
+  font-family: var(--serif);
+  font-size: 180px;
+  line-height: 1;
+  color: var(--gold);
+  opacity: .3;
+}
+
+.pull-quote p {
+  color: var(--paper);
+  font-family: var(--serif);
+  font-size: clamp(32px, 4.5vw, 72px);
+  font-style: italic;
+  font-weight: 300;
+  line-height: 1;
+  font-variation-settings: "opsz" 144, "SOFT" 100;
+}
+
+.bg-white .pull-quote p {
+  color: var(--ink);
+}
+
+.pull-quote cite {
+  display: block;
+  margin-top: 24px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.cap-grid,
+.flow,
+.metrics,
+.roadmap,
+.api-list {
+  border: 1px solid var(--line);
+  background: var(--line);
+  border-radius: 0;
+  gap: 1px;
+}
+
+.bg-white .cap-grid,
+.bg-white .flow,
+.bg-white .metrics,
+.bg-white .roadmap,
+.bg-white .api-list {
+  border-color: var(--line-paper);
+  background: var(--line-paper);
+}
+
+.cap-cell,
+.flow-cell,
+.metric,
+.phase,
+.api-row {
+  background: var(--ink-2);
+  color: var(--paper);
+}
+
+.bg-white .cap-cell,
+.bg-white .flow-cell,
+.bg-white .metric,
+.bg-white .phase,
+.bg-white .api-row {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+
+.cap-cell {
+  padding: 30px;
+  border: none;
+}
+
+.cap-cell:hover,
+.flow-cell:hover,
+.api-row:hover {
+  background: rgba(255,184,0,.04);
+}
+
+.bg-white .cap-cell:hover,
+.bg-white .flow-cell:hover,
+.bg-white .api-row:hover {
+  background: #eadfca;
+}
+
+.cap-cell h4,
+.flow-cell h4,
+.state-item h4,
+.risk-name,
+.phase-title {
+  color: var(--paper);
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 28px;
+  line-height: 1;
+  font-variation-settings: "opsz" 48, "SOFT" 40;
+}
+
+.bg-white .cap-cell h4,
+.bg-white .flow-cell h4,
+.bg-white .state-item h4,
+.bg-white .risk-name,
+.bg-white .phase-title {
+  color: var(--ink);
+}
+
+.cap-cell h4 svg {
+  color: var(--gold);
+}
+
+.cap-cell p,
+.flow-cell p,
+.state-item p,
+.metric-label,
+.phase-list li,
+.tool-integration,
+.api-desc,
+.risk-mit {
+  color: #c7c0a9;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.bg-white .cap-cell p,
+.bg-white .flow-cell p,
+.bg-white .state-item p,
+.bg-white .metric-label,
+.bg-white .phase-list li,
+.bg-white .tool-integration,
+.bg-white .api-desc,
+.bg-white .risk-mit {
+  color: #5e574a;
+}
+
+.arch-stack {
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--line);
+}
+
+.arch-layer {
+  min-height: 124px;
+  border-bottom: 1px solid var(--line);
+  background: var(--ink-2);
+}
+
+.arch-layer:last-child {
+  border-bottom: none;
+}
+
+.arch-l1,
+.arch-l2,
+.arch-l3,
+.arch-l4,
+.arch-l5 {
+  background: var(--ink-2);
+}
+
+.arch-l1 .arch-num { color: var(--cyan); }
+.arch-l2 .arch-num { color: var(--amber); }
+.arch-l3 .arch-num { color: var(--lime); }
+.arch-l4 .arch-num { color: var(--teal); }
+.arch-l5 .arch-num { color: var(--gold); }
+
+.arch-num {
+  background: linear-gradient(90deg, rgba(255,184,0,.06), transparent);
+  color: var(--gold);
+  border-right: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .3em;
+}
+
+.arch-body {
+  color: var(--paper);
+  padding: 30px;
+}
+
+.arch-body h3 {
+  color: var(--paper);
+  font-size: 24px;
+}
+
+.arch-body p {
+  max-width: 72ch;
+  color: #c7c0a9;
+  font-size: 14px;
+}
+
+.diagram-panel,
+.worker-card,
+.diagram-ledger div {
+  background:
+    radial-gradient(900px 420px at 82% -10%, rgba(255,184,0,.08), transparent 62%),
+    var(--ink-2);
+  border-color: var(--line);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.diagram-kicker,
+.diagram-zoom,
+.diagram-note,
+.worker-card .sigil,
+.worker-card li,
+.tool-name,
+.api-path,
+.api-method,
+.phase-badge,
+.metric-val {
+  font-family: var(--mono);
+  font-feature-settings: "zero" 1;
+}
+
+.diagram-kicker,
+.diagram-ledger .k,
+.worker-card li span,
+.tool-name {
+  color: var(--gold);
+}
+
+.diagram-kicker span,
+.worker-card h4 {
+  color: var(--paper);
+}
+
+.data-table,
+.risk-table {
+  border-collapse: collapse;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.bg-white .data-table,
+.bg-white .risk-table {
+  border-color: var(--line-paper);
+}
+
+.data-table thead,
+.risk-table thead {
+  position: static;
+}
+
+.data-table thead th,
+.risk-table thead th {
+  background: var(--ink-2);
+  color: var(--gold);
+  border-bottom: 1px solid var(--line);
+  border-radius: 0 !important;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .2em;
+}
+
+.bg-white .data-table thead th,
+.bg-white .risk-table thead th {
+  background: var(--paper-2);
+  color: var(--blood);
+  border-color: var(--line-paper);
+}
+
+.data-table tbody td,
+.risk-table tbody td {
+  border-bottom: 1px solid var(--line);
+}
+
+.bg-white .data-table tbody td,
+.bg-white .risk-table tbody td {
+  border-color: var(--line-paper);
+  color: var(--ink);
+}
+
+.data-table tbody tr:hover td,
+.risk-table tbody tr:hover td {
+  background: rgba(255,184,0,.04);
+}
+
+.flow-cell::before {
+  color: var(--gold);
+  font-family: var(--serif);
+  font-size: 60px;
+  font-weight: 300;
+  font-variation-settings: "opsz" 144, "SOFT" 100;
+}
+
+.metric {
+  padding: 32px 24px;
+}
+
+.metric-val {
+  color: var(--gold);
+  font-size: clamp(44px, 5vw, 78px);
+  font-weight: 300;
+}
+
+.bg-white .metric-val {
+  color: var(--ink);
+  font-family: var(--serif);
+}
+
+.phase-badge {
+  background: transparent !important;
+  color: var(--gold) !important;
+  padding: 0;
+}
+
+.phase-list li::before {
+  width: 6px;
+  height: 1px;
+  border-radius: 0;
+  background: var(--gold);
+}
+
+.api-method {
+  background: var(--ink-2) !important;
+  color: var(--gold) !important;
+}
+
+.api-path {
+  color: var(--paper);
+  border-color: var(--line);
+}
+
+.bg-white .api-path {
+  color: var(--ink);
+  border-color: var(--line-paper);
+}
+
+.sev {
+  border-radius: 0;
+  font-family: var(--mono);
+}
+
+.sev-high { background: rgba(194,58,31,.18); color: var(--blood); }
+.sev-med { background: rgba(255,184,0,.16); color: var(--gold); }
+.sev-low { background: rgba(0,163,156,.16); color: var(--teal); }
+
+.state-grid {
+  gap: 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.bg-white .state-grid {
+  border-color: var(--line-paper);
+}
+
+.state-item {
+  padding: 30px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.state-item:nth-child(even) {
+  border-right: none;
+}
+
+.bg-white .state-item {
+  border-color: var(--line-paper);
+}
+
+.footer {
+  background: var(--ink-3);
+  border-top: 1px solid var(--line);
+  padding: 90px 28px 50px;
+}
+
+.footer-brand {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .25em;
+  color: var(--gold);
+}
+
+.footer p {
+  color: #8f887a;
+  font-size: 13px;
+}
+
+.reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity .9s ease, transform .9s ease;
+}
+
+.reveal.is-visible,
+.reveal.in {
+  opacity: 1;
+  transform: none;
+}
+
+.glow {
+  position: fixed;
+  width: 420px;
+  height: 420px;
+  border-radius: 50%;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  background: radial-gradient(circle, rgba(255,184,0,.09), transparent 60%);
+  mix-blend-mode: screen;
+  filter: none;
+  transition: opacity .3s;
+}
+
+.ticker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  gap: 44px;
+  width: auto;
+  margin: 0;
+  padding: 16px 28px;
+  border-top: 1px solid var(--line);
+  overflow: hidden;
+  white-space: nowrap;
+  background: transparent;
+  color: var(--ghost);
+  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+}
+
+.ticker-row {
+  display: flex;
+  gap: 44px;
+  width: max-content;
+  animation: scroll 60s linear infinite;
+}
+
+.ticker span {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  color: var(--ghost);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ticker .dot {
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--gold);
+  color: transparent;
+  font-size: 0;
+}
+
+@keyframes scroll {
+  to { transform: translateX(-50%); }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .glow { opacity: 1; }
+}
+
+@media (max-width: 900px) {
+  .nav::after { display: none; }
+  .hero {
+    padding: 96px 22px 64px;
+  }
+  .hero-badge {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    margin-bottom: 34px;
+    padding-bottom: 34px;
+    text-align: left;
+    font-size: 10px;
+    letter-spacing: .16em;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .hero-badge::before,
+  .hero-badge::after,
+  .hero-badge > span {
+    max-width: 100%;
+    font-size: 9px;
+    letter-spacing: .12em;
+    overflow-wrap: anywhere;
+  }
+  .hero-badge::after { text-align: left; }
+  .hero h1 { font-size: clamp(52px, 18vw, 78px); }
+  .hero-deck {
+    max-width: 100%;
+    font-size: 14px;
+    overflow-wrap: anywhere;
+  }
+  .hero-meta { grid-template-columns: 1fr; }
+  .hero-meta dd { overflow-wrap: anywhere; }
+  .sec-title { max-width: none; }
+  .arch-layer { grid-template-columns: 1fr; }
+  .arch-num { justify-content: flex-start; padding: 18px 30px; border-right: none; border-bottom: 1px solid var(--line); }
+  .state-item,
+  .state-item:nth-child(even) { border-right: none; }
+  .ticker { padding: 14px 22px; }
+}
+</style>
+</head>
+<body>
+
+<div class="glow" id="glow"></div>
+
+<!-- Progress bar -->
+<div class="progress-bar" id="progress"></div>
+
+<!-- Sticky nav -->
+<nav class="nav" id="nav">
+  <span class="nav-brand">Design Review Memo</span>
+  <span class="nav-section" id="nav-section"></span>
+</nav>
+
+<!-- ═══════════ HERO ═══════════ -->
+<header class="hero" data-section="Cover">
+  <div class="hero-content">
+    <div class="hero-badge"><span>Engineering Design Review &mdash; Architecture Decision Memo</span></div>
+    <h1>Geometry<br>Agent<span>Harness</span></h1>
+    <p class="hero-deck">A durable platform for evaluating and building CAD agents that reason with semantic primitives, images, and 3D geometry.</p>
+    <dl class="hero-meta">
+      <div><dt>Date</dt><dd>May 2026</dd></div>
+      <div><dt>Audience</dt><dd>Engineering Leads</dd></div>
+      <div><dt>Decision</dt><dd>Approve Direction + Surface Risks</dd></div>
+      <div><dt>Stack</dt><dd>RLM + Temporal + CadQuery + MeshLib</dd></div>
+    </dl>
+  </div>
+  <div class="ticker" aria-hidden="true">
+    <div class="ticker-row">
+      <span>Geometry Agent Runtime</span><span class="dot">◇</span>
+      <span>Thinking with Images</span><span class="dot">◇</span>
+      <span>Thinking in 3D</span><span class="dot">◇</span>
+      <span>CadQuery Canonical Solids</span><span class="dot">◇</span>
+      <span>MeshLib Inspection</span><span class="dot">◇</span>
+      <span>ForgeCAD Editable Surface</span><span class="dot">◇</span>
+      <span>Temporal Coarse Stages</span><span class="dot">◇</span>
+      <span>Geometry Agent Runtime</span><span class="dot">◇</span>
+      <span>Thinking with Images</span><span class="dot">◇</span>
+      <span>Thinking in 3D</span><span class="dot">◇</span>
+      <span>CadQuery Canonical Solids</span><span class="dot">◇</span>
+      <span>MeshLib Inspection</span><span class="dot">◇</span>
+      <span>ForgeCAD Editable Surface</span><span class="dot">◇</span>
+      <span>Temporal Coarse Stages</span><span class="dot">◇</span>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════ 01 EXECUTIVE RECOMMENDATION ═══════════ -->
+<section class="pad-section bg-white" data-section="Executive Summary">
+  <div class="wrap-narrow reveal">
+    <div class="sec-label">01 &mdash; Decision</div>
+    <h2 class="sec-title">Executive Recommendation</h2>
+    <p class="lede">Approve the architecture direction, with the condition that geometry reasoning is treated as a first-class runtime capability rather than a thin wrapper around an editor.</p>
+    <p class="body-text">This memo refines the original ForgeCAD harness into a <strong>Geometry Agent Harness</strong>: a reusable platform capability for evaluating and building AI agents for CAD workflows. The architecture combines <strong>Recursive Language Models</strong> for context exploration, <strong>Temporal.io</strong> for durable orchestration, and a <strong>Geometry Agent Runtime</strong> where semantic primitives compile to CadQuery, inspection and repair run through MeshLib, and ForgeCAD remains the user-facing editable surface.</p>
+    <p class="body-text">The business case is not limited to faster part generation. The platform creates an auditable loop for CAD automation: natural-language intent becomes geometric operations, every attempt produces traces, visual and deterministic checks evaluate quality, and successful traces become reusable evaluation and training data. This is the foundation for safer CAD agents, lower iteration cost, and domain-specific model improvement over time.</p>
+    <p class="body-text">The central feasibility risk is spatial reasoning. CAD agents cannot rely on text-only planning or screenshot-only verification. They need <strong>Thinking with Images</strong> and <strong>Thinking in 3D</strong>: a loop where the agent plans with semantic geometry primitives, observes rendered views and raw geometry evidence, repairs failures, and then verifies the final artifact from both visual and deterministic perspectives.</p>
+
+    <div class="pull-quote">
+      <p>The review question is not whether an LLM can write CAD code once. The question is whether the system can observe, inspect, repair, and explain geometry across repeated attempts.</p>
+      <cite>Design Review Position</cite>
+    </div>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ═══════════ 02 BUSINESS CONTEXT ═══════════ -->
+<section class="pad-section bg-white" data-section="Business Context">
+  <div class="wrap-narrow reveal">
+    <div class="sec-label">02 &mdash; Business Context</div>
+    <h2 class="sec-title">Why This Platform Exists</h2>
+    <p class="body-text">The target product capability is a reusable harness for CAD agents: a system that lets teams create, evaluate, audit, and improve agents that design geometry from intent. ForgeCAD is valuable in this architecture because it gives users an editable code-first surface, but the platform value comes from the full loop around it: planning, 3D reasoning, deterministic inspection, durable execution, trace capture, and model improvement.</p>
+  </div>
+
+  <div class="wrap reveal">
+    <div class="cap-grid reveal-stagger">
+      <div class="cap-cell">
+        <h4>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          Agent Evaluation Platform
+        </h4>
+        <p>Run repeatable CAD tasks, capture traces, compare model behavior, and score outputs</p>
+      </div>
+      <div class="cap-cell">
+        <h4>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          Lower Iteration Cost
+        </h4>
+        <p>Automate routine design attempts while preserving human review for risky outputs</p>
+      </div>
+      <div class="cap-cell">
+        <h4>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+          Spatial Reasoning
+        </h4>
+        <p>Extend Thinking with Images into multi-view and geometry-aware Thinking in 3D</p>
+      </div>
+      <div class="cap-cell">
+        <h4>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          Durable Workflows
+        </h4>
+        <p>Use Temporal to survive crashes, retries, approval waits, and long-running jobs</p>
+      </div>
+      <div class="cap-cell">
+        <h4>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>
+          Editable Deliverables
+        </h4>
+        <p>Return ForgeCAD code and exports that engineering users can inspect and modify</p>
+      </div>
+      <div class="cap-cell">
+        <h4>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Trace Flywheel
+        </h4>
+        <p>Convert successful and failed design attempts into evaluation and training assets</p>
+      </div>
+      <div class="cap-cell">
+        <h4>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+          Risk Containment
+        </h4>
+        <p>Gate manufacturing-sensitive decisions through human approval and policy checks</p>
+      </div>
+      <div class="cap-cell">
+        <h4>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
+          Tool Portability
+        </h4>
+        <p>Keep agent semantics above any one editor, kernel, mesh library, or model provider</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ═══════════ 03 ARCHITECTURE ═══════════ -->
+<section class="pad-section bg-snow" data-section="Architecture">
+  <div class="wrap-narrow reveal">
+    <div class="sec-label">03 &mdash; Architecture</div>
+    <h2 class="sec-title">Recommended System Shape</h2>
+    <p class="body-text">The architecture separates user-facing CAD editing from geometry authority. The agent reasons through semantic primitives, CadQuery owns canonical solid generation, MeshLib owns mesh inspection and repair, ForgeCAD presents editable code and previews, and Temporal records durable stage transitions. This gives engineering leads clean boundaries for quality, state, and failure handling.</p>
+  </div>
+
+  <div class="wrap reveal">
+    <div class="arch-stack">
+      <div class="arch-layer arch-l5">
+        <div class="arch-num">UX</div>
+        <div class="arch-body">
+          <h3>ForgeCAD &mdash; Presentation and Editable Surface</h3>
+          <p>ForgeCAD is not the core geometry authority. It receives generated editable model code, previews, exports, and review artifacts so engineers can inspect, adjust, and continue from agent output.</p>
+        </div>
+      </div>
+      <div class="arch-layer arch-l4">
+        <div class="arch-num">GRT</div>
+        <div class="arch-body">
+          <h3>Geometry Agent Runtime &mdash; Semantic Primitive Layer</h3>
+          <p>The runtime exposes typed primitives such as mounting plates, holes, ribs, clearances, mates, fillets, fixtures, and inspections. It compiles those primitives into tool-specific operations and preserves a compact execution trace.</p>
+        </div>
+      </div>
+      <div class="arch-layer arch-l3">
+        <div class="arch-num">CAD</div>
+        <div class="arch-body">
+          <h3>CadQuery + MeshLib &mdash; Geometry Authority</h3>
+          <p>CadQuery solids are canonical during generation. MeshLib is canonical for mesh inspection, repair, proximity checks, and geometric evidence. This prevents the system from relying on screenshots or editor code as the source of truth.</p>
+        </div>
+      </div>
+      <div class="arch-layer arch-l2">
+        <div class="arch-num">RLM</div>
+        <div class="arch-body">
+          <h3>Recursive + Multimodal Reasoning</h3>
+          <p>RLM handles long-context exploration and decomposition. Multimodal calls evaluate rendered views, screenshots, and 3D evidence so the agent can think with images and extend that loop into geometry-aware 3D reasoning.</p>
+        </div>
+      </div>
+      <div class="arch-layer arch-l1">
+        <div class="arch-num">WF</div>
+        <div class="arch-body">
+          <h3>Temporal &mdash; Durable Stage Orchestration</h3>
+          <p>Temporal owns workflow durability across coarse stages: planning, generation attempt, inspection, repair, verification, approval, and export. Primitive-level detail stays in trace artifacts to avoid event-history bloat.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="diagram-suite">
+      <div class="diagram-panel reveal">
+        <div class="diagram-head">
+          <div class="diagram-kicker">Diagram ◉ 03.1 &mdash; <span>High-level architecture</span> · five durable boxes</div>
+          <div class="diagram-zoom">Zoom · 0</div>
+        </div>
+
+        <div class="diagram-scroll">
+          <svg class="diagram-svg" viewBox="0 0 1400 520" preserveAspectRatio="xMidYMid meet" role="img" aria-label="High-level architecture diagram for the Geometry Agent Harness">
+            <defs>
+              <marker id="hl-gold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#FFB800"/></marker>
+              <marker id="hl-violet" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#7C4DFF"/></marker>
+              <marker id="hl-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#00A39C"/></marker>
+              <marker id="hl-lime" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#BEDB39"/></marker>
+              <marker id="hl-blood" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#C23A1F"/></marker>
+            </defs>
+            <rect width="1400" height="520" fill="#0A0A08"/>
+            <text x="700" y="44" fill="#A39F93" font-size="11" letter-spacing="3" text-anchor="middle">INTENT → DURABLE LOOP → 3D REASONING → GEOMETRY AUTHORITY → EDITABLE CAD + TRACE</text>
+
+            <g>
+              <rect x="44" y="150" width="210" height="150" fill="#0F0F0E" stroke="#EFE7D6" stroke-width="1.2"/>
+              <text x="149" y="184" fill="#EFE7D6" font-size="13" letter-spacing="3" text-anchor="middle">ENGINEER</text>
+              <text x="149" y="208" fill="#A39F93" font-size="10" text-anchor="middle">prompt · rubric · approval</text>
+              <text x="149" y="232" fill="#FFB800" font-size="10" text-anchor="middle">ForgeCAD review surface</text>
+              <text x="149" y="252" fill="#A39F93" font-size="9" text-anchor="middle">editable code · preview · export</text>
+            </g>
+
+            <g>
+              <rect x="318" y="122" width="250" height="206" fill="#100C04" stroke="#FFB800" stroke-width="1.5"/>
+              <text x="443" y="154" fill="#FFB800" font-size="13" letter-spacing="3" text-anchor="middle">PRODUCT API</text>
+              <text x="443" y="174" fill="#A39F93" font-size="9" letter-spacing="2" text-anchor="middle">thin translation layer</text>
+              <rect x="342" y="198" width="202" height="40" fill="#0A0A08" stroke="#26241C"/>
+              <text x="443" y="222" fill="#EFE7D6" font-size="10" text-anchor="middle">POST /designs</text>
+              <rect x="342" y="248" width="202" height="40" fill="#0A0A08" stroke="#26241C"/>
+              <text x="443" y="272" fill="#EFE7D6" font-size="10" text-anchor="middle">signals · queries · evidence</text>
+            </g>
+
+            <g>
+              <rect x="632" y="98" width="270" height="254" fill="#0F0A16" stroke="#7C4DFF" stroke-width="1.7"/>
+              <text x="767" y="132" fill="#7C4DFF" font-size="13" letter-spacing="3" text-anchor="middle">TEMPORAL WORKFLOW</text>
+              <text x="767" y="150" fill="#A39F93" font-size="9" letter-spacing="2" text-anchor="middle">coarse stages only</text>
+              <text x="767" y="186" fill="#EFE7D6" font-size="10" text-anchor="middle">plan → generate → inspect</text>
+              <text x="767" y="214" fill="#EFE7D6" font-size="10" text-anchor="middle">repair → verify → approve</text>
+              <text x="767" y="242" fill="#EFE7D6" font-size="10" text-anchor="middle">emit → export → trace</text>
+              <path d="M690 284 C720 310, 814 310, 844 284" fill="none" stroke="#7C4DFF" stroke-width="1" stroke-dasharray="5 5"/>
+              <text x="767" y="320" fill="#A39F93" font-size="9" letter-spacing="1.5" text-anchor="middle">durability · retry · HITL wait</text>
+            </g>
+
+            <g>
+              <rect x="966" y="86" width="390" height="282" fill="#0B1210" stroke="#00A39C" stroke-width="1.7"/>
+              <text x="1161" y="120" fill="#00A39C" font-size="13" letter-spacing="3" text-anchor="middle">GEOMETRY AGENT RUNTIME</text>
+              <text x="1161" y="140" fill="#A39F93" font-size="9" letter-spacing="2" text-anchor="middle">semantic primitives backed by geometry tools</text>
+
+              <rect x="992" y="172" width="108" height="74" fill="#07100E" stroke="#BEDB39"/>
+              <text x="1046" y="198" fill="#BEDB39" font-size="11" text-anchor="middle">RLM</text>
+              <text x="1046" y="216" fill="#A39F93" font-size="8" text-anchor="middle">context</text>
+              <text x="1046" y="228" fill="#A39F93" font-size="8" text-anchor="middle">decompose</text>
+
+              <rect x="1114" y="172" width="108" height="74" fill="#07100E" stroke="#FFB800"/>
+              <text x="1168" y="198" fill="#FFB800" font-size="11" text-anchor="middle">3D</text>
+              <text x="1168" y="216" fill="#A39F93" font-size="8" text-anchor="middle">images +</text>
+              <text x="1168" y="228" fill="#A39F93" font-size="8" text-anchor="middle">geometry</text>
+
+              <rect x="1236" y="172" width="96" height="74" fill="#07100E" stroke="#7C4DFF"/>
+              <text x="1284" y="198" fill="#7C4DFF" font-size="11" text-anchor="middle">TRACE</text>
+              <text x="1284" y="216" fill="#A39F93" font-size="8" text-anchor="middle">evals</text>
+              <text x="1284" y="228" fill="#A39F93" font-size="8" text-anchor="middle">labels</text>
+
+              <rect x="992" y="276" width="108" height="54" fill="#06100B" stroke="#BEDB39"/>
+              <text x="1046" y="306" fill="#BEDB39" font-size="10" text-anchor="middle">CADQUERY</text>
+              <rect x="1114" y="276" width="108" height="54" fill="#06100B" stroke="#00A39C"/>
+              <text x="1168" y="306" fill="#00A39C" font-size="10" text-anchor="middle">MESHLIB</text>
+              <rect x="1236" y="276" width="96" height="54" fill="#06100B" stroke="#FFB800"/>
+              <text x="1284" y="306" fill="#FFB800" font-size="10" text-anchor="middle">RENDER</text>
+            </g>
+
+            <g>
+              <rect x="532" y="408" width="336" height="66" fill="#0F0F0E" stroke="#C23A1F" stroke-width="1.3" stroke-dasharray="5 5"/>
+              <text x="700" y="434" fill="#C23A1F" font-size="11" letter-spacing="2.2" text-anchor="middle">ARTIFACT STORE + EVAL CORPUS</text>
+              <text x="700" y="454" fill="#A39F93" font-size="9" text-anchor="middle">solids · meshes · renders · primitive trace · verifier labels</text>
+            </g>
+
+            <path d="M254 225 L318 225" fill="none" stroke="#EFE7D6" stroke-width="1.6" marker-end="url(#hl-gold)"/>
+            <text x="286" y="214" fill="#EFE7D6" font-size="9" text-anchor="middle">intent</text>
+
+            <path d="M568 225 L632 225" fill="none" stroke="#FFB800" stroke-width="1.6" marker-end="url(#hl-violet)"/>
+            <text x="600" y="214" fill="#FFB800" font-size="9" text-anchor="middle">workflow</text>
+
+            <path d="M902 225 L966 225" fill="none" stroke="#7C4DFF" stroke-width="1.6" marker-end="url(#hl-teal)"/>
+            <text x="934" y="214" fill="#7C4DFF" font-size="9" text-anchor="middle">activity</text>
+
+            <path d="M966 344 C905 396, 870 420, 868 440" fill="none" stroke="#C23A1F" stroke-width="1.4" stroke-dasharray="6 5" marker-end="url(#hl-blood)"/>
+            <path d="M532 440 C330 430, 212 374, 150 300" fill="none" stroke="#C23A1F" stroke-width="1.4" stroke-dasharray="6 5" marker-end="url(#hl-blood)"/>
+            <text x="382" y="394" fill="#C23A1F" font-size="9" letter-spacing="1.5" text-anchor="middle">feedback enriches evals and future attempts</text>
+          </svg>
+        </div>
+
+        <p class="diagram-note">Read left-to-right. Temporal coordinates the durable stages; the Geometry Runtime owns the detailed primitive loop; ForgeCAD receives accepted editable output.</p>
+      </div>
+
+      <div class="diagram-panel reveal">
+        <div class="diagram-head">
+          <div class="diagram-kicker">Diagram ◉ 03.2 &mdash; <span>Low-level architecture</span> · runtime turn anatomy</div>
+          <div class="diagram-zoom">Zoom · 1 · runtime</div>
+        </div>
+
+        <div class="diagram-scroll">
+          <svg class="diagram-svg" viewBox="0 0 1500 720" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Low-level runtime architecture diagram for semantic primitives, CadQuery, MeshLib, and ForgeCAD handoff">
+            <defs>
+              <marker id="ll-gold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#FFB800"/></marker>
+              <marker id="ll-lime" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#BEDB39"/></marker>
+              <marker id="ll-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#00A39C"/></marker>
+              <marker id="ll-violet" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#7C4DFF"/></marker>
+              <marker id="ll-blood" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#C23A1F"/></marker>
+            </defs>
+            <rect width="1500" height="720" fill="#0A0A08"/>
+            <text x="750" y="42" fill="#A39F93" font-size="11" letter-spacing="3" text-anchor="middle">ONE TEMPORAL ACTIVITY CAN CONTAIN MANY PRIMITIVE OPERATIONS; THE TRACE IS STORED AS AN ARTIFACT</text>
+
+            <g>
+              <rect x="36" y="88" width="294" height="236" fill="#0F0F0E" stroke="#26241C"/>
+              <text x="183" y="122" fill="#EFE7D6" font-size="13" letter-spacing="3" text-anchor="middle">INPUT CONTEXT</text>
+              <text x="68" y="160" fill="#BEDB39" font-size="10">▸ design prompt</text>
+              <text x="68" y="184" fill="#BEDB39" font-size="10">▸ project constraints</text>
+              <text x="68" y="208" fill="#BEDB39" font-size="10">▸ ForgeCAD examples</text>
+              <text x="68" y="232" fill="#BEDB39" font-size="10">▸ previous traces</text>
+              <text x="68" y="256" fill="#FFB800" font-size="10">▸ target review rubric</text>
+              <text x="68" y="286" fill="#A39F93" font-size="9">loaded as variables; summarized only when useful</text>
+            </g>
+
+            <g>
+              <rect x="396" y="88" width="260" height="236" fill="#0D1208" stroke="#BEDB39" stroke-width="1.5"/>
+              <text x="526" y="122" fill="#BEDB39" font-size="13" letter-spacing="3" text-anchor="middle">RLM PLANNER</text>
+              <text x="526" y="146" fill="#A39F93" font-size="9" letter-spacing="2" text-anchor="middle">context exploration + decomposition</text>
+              <rect x="426" y="178" width="200" height="42" fill="#161B08" stroke="#3D4A18"/>
+              <text x="526" y="204" fill="#EFE7D6" font-size="10" text-anchor="middle">grep docs · parse examples</text>
+              <rect x="426" y="232" width="200" height="42" fill="#161B08" stroke="#3D4A18"/>
+              <text x="526" y="258" fill="#EFE7D6" font-size="10" text-anchor="middle">spawn focused sub-calls</text>
+              <text x="526" y="298" fill="#BEDB39" font-size="10" text-anchor="middle">outputs: primitive plan + assumptions</text>
+            </g>
+
+            <g>
+              <rect x="722" y="88" width="342" height="236" fill="#100C04" stroke="#FFB800" stroke-width="1.7"/>
+              <text x="893" y="122" fill="#FFB800" font-size="13" letter-spacing="3" text-anchor="middle">SEMANTIC PRIMITIVE PLAN</text>
+              <text x="893" y="146" fill="#A39F93" font-size="9" letter-spacing="2" text-anchor="middle">validated schema before tool execution</text>
+              <g font-size="10" text-anchor="middle">
+                <rect x="752" y="178" width="126" height="46" fill="#0F0C04" stroke="#FFB800" stroke-opacity=".7"/>
+                <text x="815" y="205" fill="#FFB800">mounting_plate</text>
+                <rect x="892" y="178" width="68" height="46" fill="#0F0C04" stroke="#FFB800" stroke-opacity=".7"/>
+                <text x="926" y="205" fill="#FFB800">holes</text>
+                <rect x="974" y="178" width="60" height="46" fill="#0F0C04" stroke="#FFB800" stroke-opacity=".7"/>
+                <text x="1004" y="205" fill="#FFB800">ribs</text>
+                <rect x="752" y="242" width="110" height="46" fill="#0F0C04" stroke="#FFB800" stroke-opacity=".7"/>
+                <text x="807" y="269" fill="#FFB800">clearance</text>
+                <rect x="876" y="242" width="72" height="46" fill="#0F0C04" stroke="#FFB800" stroke-opacity=".7"/>
+                <text x="912" y="269" fill="#FFB800">mates</text>
+                <rect x="962" y="242" width="72" height="46" fill="#0F0C04" stroke="#FFB800" stroke-opacity=".7"/>
+                <text x="998" y="269" fill="#FFB800">fillets</text>
+              </g>
+              <path d="M815 224 L815 242" stroke="#FFB800" stroke-width=".9" marker-end="url(#ll-gold)"/>
+              <path d="M926 224 L912 242" stroke="#FFB800" stroke-width=".9" marker-end="url(#ll-gold)"/>
+              <path d="M1004 224 L998 242" stroke="#FFB800" stroke-width=".9" marker-end="url(#ll-gold)"/>
+            </g>
+
+            <g>
+              <rect x="1130" y="88" width="334" height="236" fill="#07100E" stroke="#00A39C" stroke-width="1.7"/>
+              <text x="1297" y="122" fill="#00A39C" font-size="13" letter-spacing="3" text-anchor="middle">GEOMETRY TOOLS</text>
+              <text x="1297" y="146" fill="#A39F93" font-size="9" letter-spacing="2" text-anchor="middle">authoritative evidence, not decorative checks</text>
+              <rect x="1162" y="180" width="90" height="78" fill="#06100B" stroke="#BEDB39"/>
+              <text x="1207" y="208" fill="#BEDB39" font-size="10" text-anchor="middle">CadQuery</text>
+              <text x="1207" y="228" fill="#A39F93" font-size="8" text-anchor="middle">canonical</text>
+              <text x="1207" y="240" fill="#A39F93" font-size="8" text-anchor="middle">solids</text>
+              <rect x="1272" y="180" width="90" height="78" fill="#06100B" stroke="#00A39C"/>
+              <text x="1317" y="208" fill="#00A39C" font-size="10" text-anchor="middle">MeshLib</text>
+              <text x="1317" y="228" fill="#A39F93" font-size="8" text-anchor="middle">inspect</text>
+              <text x="1317" y="240" fill="#A39F93" font-size="8" text-anchor="middle">repair</text>
+              <rect x="1162" y="276" width="200" height="30" fill="#06100B" stroke="#26241C"/>
+              <text x="1262" y="296" fill="#EFE7D6" font-size="9" text-anchor="middle">measure · collide · watertight · render</text>
+            </g>
+
+            <g>
+              <rect x="182" y="430" width="284" height="192" fill="#0F0F0E" stroke="#7C4DFF" stroke-width="1.4"/>
+              <text x="324" y="464" fill="#7C4DFF" font-size="13" letter-spacing="3" text-anchor="middle">3D VERIFIER</text>
+              <text x="324" y="488" fill="#A39F93" font-size="9" text-anchor="middle">raw geometry + rendered views</text>
+              <text x="224" y="526" fill="#FFB800" font-size="10">▸ multi-view images</text>
+              <text x="224" y="552" fill="#00A39C" font-size="10">▸ measurements</text>
+              <text x="224" y="578" fill="#BEDB39" font-size="10">▸ intent rubric</text>
+            </g>
+
+            <g>
+              <rect x="554" y="430" width="288" height="192" fill="#0B1210" stroke="#C23A1F" stroke-width="1.4" stroke-dasharray="6 5"/>
+              <text x="698" y="464" fill="#C23A1F" font-size="13" letter-spacing="3" text-anchor="middle">REPAIR LOOP</text>
+              <text x="698" y="488" fill="#A39F93" font-size="9" text-anchor="middle">bounded attempts, explicit failures</text>
+              <text x="596" y="526" fill="#EFE7D6" font-size="10">if invalid: revise primitives</text>
+              <text x="596" y="552" fill="#EFE7D6" font-size="10">if mesh defect: repair or fail</text>
+              <text x="596" y="578" fill="#EFE7D6" font-size="10">if mismatch: ask / iterate</text>
+            </g>
+
+            <g>
+              <rect x="930" y="430" width="356" height="192" fill="#100C04" stroke="#FFB800" stroke-width="1.5"/>
+              <text x="1108" y="464" fill="#FFB800" font-size="13" letter-spacing="3" text-anchor="middle">EMIT + REVIEW</text>
+              <text x="1108" y="488" fill="#A39F93" font-size="9" text-anchor="middle">accepted geometry leaves the runtime</text>
+              <rect x="964" y="522" width="124" height="54" fill="#0F0F0E" stroke="#EFE7D6"/>
+              <text x="1026" y="552" fill="#EFE7D6" font-size="10" text-anchor="middle">ForgeCAD code</text>
+              <rect x="1104" y="522" width="80" height="54" fill="#0F0F0E" stroke="#00A39C"/>
+              <text x="1144" y="552" fill="#00A39C" font-size="10" text-anchor="middle">exports</text>
+              <rect x="1200" y="522" width="58" height="54" fill="#0F0F0E" stroke="#7C4DFF"/>
+              <text x="1229" y="552" fill="#7C4DFF" font-size="10" text-anchor="middle">trace</text>
+            </g>
+
+            <path d="M330 206 L396 206" fill="none" stroke="#BEDB39" stroke-width="1.5" marker-end="url(#ll-lime)"/>
+            <path d="M656 206 L722 206" fill="none" stroke="#BEDB39" stroke-width="1.5" marker-end="url(#ll-gold)"/>
+            <path d="M1064 206 L1130 206" fill="none" stroke="#FFB800" stroke-width="1.5" marker-end="url(#ll-teal)"/>
+            <path d="M1297 324 C1297 386, 1048 382, 1108 430" fill="none" stroke="#00A39C" stroke-width="1.4" marker-end="url(#ll-violet)"/>
+            <path d="M930 526 L842 526" fill="none" stroke="#C23A1F" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ll-blood)"/>
+            <path d="M554 526 C462 526, 452 430, 324 430" fill="none" stroke="#C23A1F" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ll-blood)"/>
+            <path d="M698 430 C696 372, 884 354, 893 324" fill="none" stroke="#C23A1F" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#ll-blood)"/>
+            <text x="750" y="672" fill="#A39F93" font-size="10" letter-spacing="2.4" text-anchor="middle">PASS: EMIT ARTIFACTS · FAIL: BOUNDED REPAIR OR HUMAN CLARIFICATION · ALWAYS: TRACE CAPTURE</text>
+          </svg>
+        </div>
+
+        <div class="diagram-ledger">
+          <div><div class="k">State</div><div class="v">CadQuery solids are canonical during generation; MeshLib evidence is canonical during inspection and repair.</div></div>
+          <div><div class="k">Durability</div><div class="v">Temporal sees the turn as coarse activities and stores heavy primitive detail by artifact reference.</div></div>
+          <div><div class="k">Reasoning</div><div class="v">The verifier consumes raw measurements and rendered views, so Thinking in 3D is not screenshot-only.</div></div>
+          <div><div class="k">Handoff</div><div class="v">ForgeCAD receives editable code, accepted previews, exports, and review notes after verification.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ═══════════ 04 THINKING IN 3D ═══════════ -->
+<section class="pad-section bg-white" data-section="Thinking in 3D">
+  <div class="wrap-narrow reveal">
+    <div class="sec-label">04 &mdash; Spatial Reasoning</div>
+    <h2 class="sec-title">Thinking with Images, Extended into 3D</h2>
+    <p class="body-text">The harness must treat 3D reasoning as both an in-loop design capability and a post-generation verification capability. During generation, the agent observes geometry evidence, revises primitives, and repairs defects. At the end of each attempt, a verifier evaluates whether the artifact satisfies intent using both rendered views and deterministic geometry checks.</p>
+  </div>
+
+  <div class="wrap reveal">
+    <div class="state-grid">
+      <div class="state-item">
+        <h4>Semantic Primitive Planning</h4>
+        <p>The agent plans in typed CAD concepts: holes, ribs, mounting plates, offsets, mates, clearances, fastener patterns, envelopes, and manufacturability constraints.</p>
+      </div>
+      <div class="state-item">
+        <h4>Raw Geometry Evidence</h4>
+        <p>CadQuery and MeshLib expose dimensions, topology, intersections, proximity, normals, watertightness, face references, and mesh defects for deterministic inspection.</p>
+      </div>
+      <div class="state-item">
+        <h4>Rendered Visual Evidence</h4>
+        <p>Multi-view renders let multimodal models judge shape intent, orientation, visual plausibility, assembly alignment, and defects that are easier to see than specify numerically.</p>
+      </div>
+      <div class="state-item">
+        <h4>Repair and Re-Verification</h4>
+        <p>Failures route back into the primitive plan. The agent can revise dimensions, add constraints, repair meshes, regenerate previews, and re-run the verifier before asking for approval.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap-narrow reveal" style="margin-top: 2rem;">
+    <h3 class="sec-subtitle">Why Images Alone Are Not Enough</h3>
+    <p class="body-text">A rendered screenshot can reveal whether a part looks wrong, but it cannot prove constraints, tolerances, clearances, topology, or manufacturability. The runtime must combine visual inspection with geometric measurements. That is the practical meaning of Thinking in 3D: the agent observes both pixels and primitives, then acts on the underlying geometry rather than only describing the image.</p>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ═══════════ 05 CANONICAL OWNERSHIP ═══════════ -->
+<section class="pad-section bg-snow" data-section="Canonical Ownership">
+  <div class="wrap-narrow reveal">
+    <div class="sec-label">05 &mdash; Geometry Ownership</div>
+    <h2 class="sec-title">Canonical State Boundaries</h2>
+    <p class="body-text">The refined architecture assigns one clear owner for each representation. This avoids a common failure mode in CAD agent systems: treating generated editor code, preview images, meshes, and solids as interchangeable sources of truth.</p>
+  </div>
+
+  <div class="wrap reveal">
+    <table class="data-table">
+      <thead>
+        <tr><th>Representation</th><th>Canonical Owner</th><th>Role in the Harness</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><span class="tool-name">Design Intent</span></td><td>Workflow input + user approval state</td><td class="tool-integration">Stable requirements, constraints, review decisions, and manufacturing caveats</td></tr>
+        <tr><td><span class="tool-name">Semantic Plan</span></td><td>Geometry Agent Runtime</td><td class="tool-integration">Typed primitive sequence that is auditable and portable across tools</td></tr>
+        <tr><td><span class="tool-name">Generated Solids</span></td><td>CadQuery</td><td class="tool-integration">Canonical representation during parametric construction and feature generation</td></tr>
+        <tr><td><span class="tool-name">Mesh Evidence</span></td><td>MeshLib</td><td class="tool-integration">Canonical representation for mesh inspection, repair, collision, proximity, and watertightness</td></tr>
+        <tr><td><span class="tool-name">Rendered Views</span></td><td>Geometry Runtime artifact store</td><td class="tool-integration">Evidence for multimodal review, human approval, and regression comparison</td></tr>
+        <tr><td><span class="tool-name">Editable CAD</span></td><td>ForgeCAD</td><td class="tool-integration">User-facing code, preview surface, and handoff artifact; not the core geometry authority</td></tr>
+        <tr><td><span class="tool-name">Durable State</span></td><td>Temporal</td><td class="tool-integration">Coarse stage transitions, retries, approval waits, signals, and artifact references</td></tr>
+        <tr><td><span class="tool-name">Primitive Trace</span></td><td>Trace artifact store</td><td class="tool-integration">Compact execution detail for audits, evals, debugging, and future fine-tuning</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ═══════════ 06 GEOMETRY RUNTIME ═══════════ -->
+<section class="pad-section bg-white" data-section="Geometry Runtime">
+  <div class="wrap-narrow reveal">
+    <div class="sec-label">06 &mdash; Runtime Contract</div>
+    <h2 class="sec-title">Semantic Primitives Backed by CadQuery and MeshLib</h2>
+    <p class="body-text">The Geometry Agent Runtime is the execution boundary between model reasoning and CAD tooling. The agent does not directly freestyle arbitrary CAD code as the main interface. It proposes and revises semantic primitives, then the runtime compiles those operations into CadQuery generation, MeshLib inspection and repair, render artifacts, and ForgeCAD handoff code.</p>
+  </div>
+
+  <div class="wrap reveal">
+    <table class="data-table">
+      <thead>
+        <tr><th>Runtime Primitive</th><th>Function</th><th>Backing Capability</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><span class="tool-name">primitive_plan</span></td><td>Create a typed plan of CAD features, constraints, dimensions, and expected evidence.</td><td class="tool-integration">RLM + schema validation</td></tr>
+        <tr><td><span class="tool-name">solid_generate</span></td><td>Compile semantic primitives into canonical solids and parametric construction steps.</td><td class="tool-integration">CadQuery</td></tr>
+        <tr><td><span class="tool-name">mesh_inspect</span></td><td>Check watertightness, topology, intersections, normals, clearances, and mesh defects.</td><td class="tool-integration">MeshLib</td></tr>
+        <tr><td><span class="tool-name">mesh_repair</span></td><td>Repair or simplify mesh outputs where appropriate without hiding failed design intent.</td><td class="tool-integration">MeshLib + policy gates</td></tr>
+        <tr><td><span class="tool-name">measure_geometry</span></td><td>Collect dimensions, volumes, bounding boxes, face references, and tolerance evidence.</td><td class="tool-integration">CadQuery + MeshLib</td></tr>
+        <tr><td><span class="tool-name">render_views</span></td><td>Produce canonical visual evidence: front, side, top, isometric, section, and exploded views.</td><td class="tool-integration">Geometry renderer</td></tr>
+        <tr><td><span class="tool-name">visual_verify</span></td><td>Use multimodal models to compare rendered evidence against user intent and rubric.</td><td class="tool-integration">Thinking with Images / 3D verifier</td></tr>
+        <tr><td><span class="tool-name">forgecad_emit</span></td><td>Generate editable ForgeCAD model code and attach previews, exports, and review notes.</td><td class="tool-integration">ForgeCAD adapter</td></tr>
+        <tr><td><span class="tool-name">trace_capture</span></td><td>Persist primitive plan, tool evidence, verification scores, and repair attempts as artifacts.</td><td class="tool-integration">Artifact store + Temporal reference</td></tr>
+        <tr><td><span class="tool-name">approval_gate</span></td><td>Block release or export when manufacturing-sensitive assumptions need human signoff.</td><td class="tool-integration">Temporal Signal</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ═══════════ 07 WORKFLOW EXECUTION ═══════════ -->
+<section class="pad-section bg-snow" data-section="Workflow Execution">
+  <div class="wrap-narrow reveal">
+    <div class="sec-label">07 &mdash; MVP Loop</div>
+    <h2 class="sec-title">Minimum Viable Workflow</h2>
+    <p class="body-text">The first implementation should prove the full spatial reasoning loop before expanding into multi-part child workflows or fine-tuning. The MVP needs enough surface area to show language-to-geometry, deterministic inspection, visual reasoning, editable output, and human approval.</p>
+  </div>
+
+  <div class="wrap reveal">
+    <div class="flow reveal-stagger">
+      <div class="flow-cell">
+        <h4>Prompt and Requirements</h4>
+        <p>User intent enters as a workflow input. The system extracts dimensions, constraints, assumptions, manufacturing risk, and required review evidence.</p>
+      </div>
+      <div class="flow-cell">
+        <h4>Semantic Primitive Plan</h4>
+        <p>RLM creates a typed plan using feature and inspection primitives. The plan is validated before any geometry tool executes.</p>
+      </div>
+      <div class="flow-cell">
+        <h4>CadQuery Solid Generation</h4>
+        <p>The runtime compiles primitives into canonical CadQuery solids, retaining parameters and construction trace for repair and explainability.</p>
+      </div>
+      <div class="flow-cell">
+        <h4>MeshLib Inspection and Repair</h4>
+        <p>Mesh evidence is checked for geometric validity, collisions, clearances, and mesh defects. Repair attempts are bounded and recorded.</p>
+      </div>
+      <div class="flow-cell">
+        <h4>Multi-View 3D Verification</h4>
+        <p>The verifier consumes raw geometry evidence plus rendered views, scores against intent, and sends failures back to the primitive plan.</p>
+      </div>
+      <div class="flow-cell">
+        <h4>ForgeCAD Handoff and Approval</h4>
+        <p>The system emits editable ForgeCAD code, previews, exports, and trace artifacts. Human approval gates release for sensitive outputs.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ═══════════ 08 WORKER BOUNDARIES ═══════════ -->
+<section class="pad-section bg-ink" data-section="Worker Boundaries">
+  <div class="wrap-narrow reveal">
+    <div class="sec-label">08 &mdash; Worker Boundaries</div>
+    <h2 class="sec-title" style="color:var(--white)">Execution Surfaces and Ownership</h2>
+    <p class="body-text" style="color:var(--silver)">This section defines runtime ownership. Temporal owns durable progression and retries. Workers own bounded execution. The artifact store owns heavy geometry evidence. ForgeCAD owns the editable human handoff.</p>
+  </div>
+
+  <div class="wrap reveal">
+    <div class="diagram-panel">
+      <div class="diagram-head">
+        <div class="diagram-kicker">Diagram ◉ 08.1 &mdash; <span>Worker ownership</span> · queues, artifacts, and gates</div>
+        <div class="diagram-zoom">Runtime map</div>
+      </div>
+
+      <div class="diagram-scroll">
+        <svg class="diagram-svg" viewBox="0 0 1400 520" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Worker ownership diagram for Geometry Agent Harness">
+          <defs>
+            <marker id="w-gold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#FFB800"/></marker>
+            <marker id="w-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#00A39C"/></marker>
+            <marker id="w-blood" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#C23A1F"/></marker>
+          </defs>
+          <rect width="1400" height="520" fill="#0A0A08"/>
+          <text x="700" y="42" fill="#A39F93" font-size="11" letter-spacing="3" text-anchor="middle">TEMPORAL RECORDS STAGES · WORKERS EXECUTE BOUNDED JOBS · ARTIFACTS HOLD HEAVY EVIDENCE</text>
+
+          <g>
+            <rect x="54" y="112" width="210" height="118" fill="#0F0F0E" stroke="#EFE7D6"/>
+            <text x="159" y="146" fill="#EFE7D6" font-size="13" letter-spacing="3" text-anchor="middle">PRODUCT API</text>
+            <text x="159" y="170" fill="#A39F93" font-size="9" text-anchor="middle">prompt · rubric · approval policy</text>
+            <text x="159" y="196" fill="#FFB800" font-size="10" text-anchor="middle">starts workflow</text>
+          </g>
+
+          <g>
+            <rect x="330" y="86" width="740" height="170" fill="#0F0A16" stroke="#7C4DFF" stroke-width="1.6"/>
+            <text x="700" y="120" fill="#7C4DFF" font-size="13" letter-spacing="3" text-anchor="middle">TEMPORAL NAMESPACE</text>
+            <text x="700" y="140" fill="#A39F93" font-size="9" letter-spacing="2" text-anchor="middle">workflow state, retries, timeouts, signals, queries, artifact references</text>
+
+            <rect x="360" y="174" width="120" height="42" fill="#16111F" stroke="#7C4DFF"/>
+            <text x="420" y="200" fill="#EFE7D6" font-size="10" text-anchor="middle">design queue</text>
+            <rect x="500" y="174" width="120" height="42" fill="#16111F" stroke="#7C4DFF"/>
+            <text x="560" y="200" fill="#EFE7D6" font-size="10" text-anchor="middle">planning queue</text>
+            <rect x="640" y="174" width="120" height="42" fill="#16111F" stroke="#7C4DFF"/>
+            <text x="700" y="200" fill="#EFE7D6" font-size="10" text-anchor="middle">geometry queue</text>
+            <rect x="780" y="174" width="120" height="42" fill="#16111F" stroke="#7C4DFF"/>
+            <text x="840" y="200" fill="#EFE7D6" font-size="10" text-anchor="middle">verify queue</text>
+            <rect x="920" y="174" width="120" height="42" fill="#16111F" stroke="#7C4DFF"/>
+            <text x="980" y="200" fill="#EFE7D6" font-size="10" text-anchor="middle">handoff queue</text>
+          </g>
+
+          <g>
+            <rect x="308" y="318" width="154" height="96" fill="#0D1208" stroke="#BEDB39"/>
+            <text x="385" y="350" fill="#BEDB39" font-size="11" letter-spacing="2" text-anchor="middle">PLANNER</text>
+            <text x="385" y="374" fill="#A39F93" font-size="9" text-anchor="middle">RLM context pass</text>
+            <text x="385" y="394" fill="#A39F93" font-size="9" text-anchor="middle">primitive plan</text>
+
+            <rect x="500" y="318" width="154" height="96" fill="#100C04" stroke="#FFB800"/>
+            <text x="577" y="350" fill="#FFB800" font-size="11" letter-spacing="2" text-anchor="middle">GEOMETRY</text>
+            <text x="577" y="374" fill="#A39F93" font-size="9" text-anchor="middle">CadQuery solids</text>
+            <text x="577" y="394" fill="#A39F93" font-size="9" text-anchor="middle">MeshLib inspect</text>
+
+            <rect x="692" y="318" width="154" height="96" fill="#07100E" stroke="#00A39C"/>
+            <text x="769" y="350" fill="#00A39C" font-size="11" letter-spacing="2" text-anchor="middle">VERIFIER</text>
+            <text x="769" y="374" fill="#A39F93" font-size="9" text-anchor="middle">images + geometry</text>
+            <text x="769" y="394" fill="#A39F93" font-size="9" text-anchor="middle">pass/fail rubric</text>
+
+            <rect x="884" y="318" width="154" height="96" fill="#100C04" stroke="#FFB800"/>
+            <text x="961" y="350" fill="#FFB800" font-size="11" letter-spacing="2" text-anchor="middle">HANDOFF</text>
+            <text x="961" y="374" fill="#A39F93" font-size="9" text-anchor="middle">ForgeCAD code</text>
+            <text x="961" y="394" fill="#A39F93" font-size="9" text-anchor="middle">exports + notes</text>
+          </g>
+
+          <g>
+            <rect x="1128" y="290" width="218" height="150" fill="#0F0F0E" stroke="#C23A1F" stroke-width="1.4" stroke-dasharray="6 5"/>
+            <text x="1237" y="324" fill="#C23A1F" font-size="12" letter-spacing="2" text-anchor="middle">ARTIFACT STORE</text>
+            <text x="1237" y="350" fill="#A39F93" font-size="9" text-anchor="middle">solids · meshes · renders</text>
+            <text x="1237" y="370" fill="#A39F93" font-size="9" text-anchor="middle">primitive trace · scores</text>
+            <text x="1237" y="400" fill="#FFB800" font-size="10" text-anchor="middle">Temporal stores references</text>
+          </g>
+
+          <path d="M264 171 L330 171" fill="none" stroke="#FFB800" stroke-width="1.5" marker-end="url(#w-gold)"/>
+          <path d="M420 216 L385 318" fill="none" stroke="#BEDB39" stroke-width="1.2" marker-end="url(#w-gold)"/>
+          <path d="M560 216 L577 318" fill="none" stroke="#FFB800" stroke-width="1.2" marker-end="url(#w-gold)"/>
+          <path d="M700 216 L577 318" fill="none" stroke="#FFB800" stroke-width="1.2" marker-end="url(#w-gold)"/>
+          <path d="M840 216 L769 318" fill="none" stroke="#00A39C" stroke-width="1.2" marker-end="url(#w-teal)"/>
+          <path d="M980 216 L961 318" fill="none" stroke="#FFB800" stroke-width="1.2" marker-end="url(#w-gold)"/>
+          <path d="M462 366 L500 366" fill="none" stroke="#BEDB39" stroke-width="1.3" marker-end="url(#w-gold)"/>
+          <path d="M654 366 L692 366" fill="none" stroke="#FFB800" stroke-width="1.3" marker-end="url(#w-teal)"/>
+          <path d="M846 366 L884 366" fill="none" stroke="#00A39C" stroke-width="1.3" marker-end="url(#w-gold)"/>
+          <path d="M1038 366 L1128 366" fill="none" stroke="#C23A1F" stroke-width="1.2" stroke-dasharray="6 5" marker-end="url(#w-blood)"/>
+          <path d="M1128 408 C980 484, 520 484, 385 414" fill="none" stroke="#C23A1F" stroke-width="1.1" stroke-dasharray="6 5" marker-end="url(#w-blood)"/>
+          <text x="756" y="476" fill="#C23A1F" font-size="9" letter-spacing="2" text-anchor="middle">FAILED VERIFICATION RE-ENTERS AS A NEW PLANNING ATTEMPT, NOT AS HIDDEN STATE MUTATION</text>
+        </svg>
+      </div>
+
+      <div class="worker-matrix">
+        <article class="worker-card">
+          <div class="sigil">W · 01 / durable</div>
+          <h4>Design Workflow</h4>
+          <p>Owns stage order, retries, timeouts, signals, queries, and artifact references. It does not own primitive execution.</p>
+          <ul>
+            <li><span>Queue</span> design</li>
+            <li><span>State</span> stage only</li>
+            <li><span>Failure</span> retry or gate</li>
+          </ul>
+        </article>
+        <article class="worker-card">
+          <div class="sigil">W · 02 / reasoning</div>
+          <h4>Planning Worker</h4>
+          <p>Explores context and emits a typed primitive plan plus assumptions. It can ask for clarification when intent is underspecified.</p>
+          <ul>
+            <li><span>Queue</span> planning</li>
+            <li><span>Output</span> primitive plan</li>
+            <li><span>Failure</span> ambiguity</li>
+          </ul>
+        </article>
+        <article class="worker-card">
+          <div class="sigil">W · 03 / geometry</div>
+          <h4>Geometry Worker</h4>
+          <p>Runs CadQuery and MeshLib inside an isolated runtime. This is where canonical solids, mesh diagnostics, and repairs are produced.</p>
+          <ul>
+            <li><span>Queue</span> geometry</li>
+            <li><span>State</span> artifact trace</li>
+            <li><span>Failure</span> invalid geometry</li>
+          </ul>
+        </article>
+        <article class="worker-card">
+          <div class="sigil">W · 04 / evidence</div>
+          <h4>Verifier Worker</h4>
+          <p>Scores the attempt using measurements and rendered views. It decides whether to pass, repair, or escalate to human review.</p>
+          <ul>
+            <li><span>Queue</span> verify</li>
+            <li><span>Input</span> image + geometry</li>
+            <li><span>Failure</span> mismatch</li>
+          </ul>
+        </article>
+        <article class="worker-card">
+          <div class="sigil">W · 05 / handoff</div>
+          <h4>ForgeCAD Adapter</h4>
+          <p>Emits editable code, previews, exports, and review notes only after the accepted geometry has passed the verifier or approval gate.</p>
+          <ul>
+            <li><span>Queue</span> handoff</li>
+            <li><span>Output</span> editable CAD</li>
+            <li><span>Failure</span> translation drift</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ═══════════ 09 STATE AND DURABILITY ═══════════ -->
+<section class="pad-section bg-snow" data-section="State &amp; Durability">
+  <div class="wrap-narrow reveal">
+    <div class="sec-label">09 &mdash; State &amp; Durability</div>
+    <h2 class="sec-title">Coarse Durable Stages, Detailed Trace Artifacts</h2>
+    <p class="body-text">Temporal should record coarse workflow stages rather than every semantic primitive call. This preserves durable recovery, retries, approval waits, and auditability without exploding event history or confusing orchestration with geometry execution.</p>
+  </div>
+
+  <div class="wrap reveal">
+    <div class="state-grid">
+      <div class="state-item">
+        <h4>Temporal = Stage State</h4>
+        <p>Workflow history captures stage boundaries, activity outcomes, artifact references, retries, timeouts, signals, queries, and approval decisions.</p>
+      </div>
+      <div class="state-item">
+        <h4>Runtime Trace = Primitive Detail</h4>
+        <p>The Geometry Runtime records primitive calls, parameters, measurements, renders, mesh diagnostics, repair attempts, and verifier scores as trace artifacts.</p>
+      </div>
+      <div class="state-item">
+        <h4>Queries = Live Review</h4>
+        <p>Temporal Queries expose current phase, latest preview, verification score, failure reason, artifact URIs, and approval requirements without mutating workflow state.</p>
+      </div>
+      <div class="state-item">
+        <h4>Signals = Human Control</h4>
+        <p>Signals carry approval, rejection, parameter changes, rubric updates, and iteration requests into a running workflow without polling or restarting the job.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap-narrow reveal" style="margin-top: 2rem;">
+    <h3 class="sec-subtitle">History Management Decision</h3>
+    <p class="body-text">Primitive traces should be attached to workflow history by reference, not embedded in full. The workflow can use Continue-As-New for long-running explorations, but the stronger first control is to keep Temporal history at the stage level and store large geometry, image, mesh, and trace payloads in an artifact store.</p>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ═══════════ 10 API ═══════════ -->
+<section class="pad-section bg-white" data-section="API">
+  <div class="wrap-narrow reveal">
+    <div class="sec-label">10 &mdash; Interface</div>
+    <h2 class="sec-title">Product API Contract</h2>
+    <p class="body-text">The external API wraps Temporal workflow operations and artifact access. Starting a design creates a workflow, iteration and approval become signals, status and previews are queries, and large geometry evidence is read from the artifact store by reference.</p>
+  </div>
+
+  <div class="wrap reveal">
+    <div class="api-list">
+      <div class="api-row"><span class="api-method m-post">POST</span><span class="api-path">/api/v1/designs</span><span class="api-desc">Start a workflow from prompt, project context, output target, and evaluation rubric</span></div>
+      <div class="api-row"><span class="api-method m-post">SIGNAL</span><span class="api-path">/api/v1/designs/:id/iterate</span><span class="api-desc">Send revision instructions, updated constraints, or changed review criteria</span></div>
+      <div class="api-row"><span class="api-method m-get">QUERY</span><span class="api-path">/api/v1/designs/:id/status</span><span class="api-desc">Read phase, progress, verifier score, failure reason, and approval requirement</span></div>
+      <div class="api-row"><span class="api-method m-get">QUERY</span><span class="api-path">/api/v1/designs/:id/code</span><span class="api-desc">Read current editable ForgeCAD source code and generation metadata</span></div>
+      <div class="api-row"><span class="api-method m-get">QUERY</span><span class="api-path">/api/v1/designs/:id/evidence</span><span class="api-desc">Read geometry measurements, mesh diagnostics, rendered views, and trace links</span></div>
+      <div class="api-row"><span class="api-method m-post">SIGNAL</span><span class="api-path">/api/v1/designs/:id/approve</span><span class="api-desc">Approve, reject, or request changes at a human-review gate</span></div>
+      <div class="api-row"><span class="api-method m-post">SIGNAL</span><span class="api-path">/api/v1/designs/:id/params</span><span class="api-desc">Send parameter changes into a running workflow for repair or regeneration</span></div>
+      <div class="api-row"><span class="api-method m-get">GET</span><span class="api-path">/api/v1/designs/:id/trace</span><span class="api-desc">Fetch the primitive trace artifact and related Temporal history references</span></div>
+      <div class="api-row"><span class="api-method m-post">POST</span><span class="api-path">/api/v1/designs/:id/export</span><span class="api-desc">Trigger accepted output export: ForgeCAD, STEP, STL, mesh, preview pack, or report</span></div>
+      <div class="api-row"><span class="api-method m-ws">WS</span><span class="api-path">/ws/v1/designs/:id/stream</span><span class="api-desc">Stream stage changes, previews, verifier updates, approval gates, and export status</span></div>
+    </div>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ═══════════ 11 METRICS ═══════════ -->
+<section class="pad-section bg-snow" data-section="Performance">
+  <div class="wrap-narrow reveal">
+    <div class="sec-label">11 &mdash; Performance</div>
+    <h2 class="sec-title">Decision Metrics</h2>
+    <p class="body-text">These metrics should be treated as review gates, not marketing claims. The first milestone is to prove a reliable single-part loop before optimizing speed or moving into multi-part orchestration.</p>
+  </div>
+
+  <div class="wrap reveal">
+    <div class="metrics reveal-stagger">
+      <div class="metric"><div class="metric-val">&gt;80%</div><div class="metric-label">Valid Single-Part<br>First Pass</div></div>
+      <div class="metric"><div class="metric-val">&lt;2</div><div class="metric-label">Average Repair<br>Iterations</div></div>
+      <div class="metric"><div class="metric-val">100%</div><div class="metric-label">Outputs with Trace<br>Artifacts</div></div>
+      <div class="metric"><div class="metric-val">0</div><div class="metric-label">Silent Geometry<br>Failures</div></div>
+      <div class="metric"><div class="metric-val">&lt;5m</div><div class="metric-label">MVP Single-Part<br>Workflow Time</div></div>
+      <div class="metric"><div class="metric-val">&lt;40k</div><div class="metric-label">Temporal Events<br>Before Continue</div></div>
+      <div class="metric"><div class="metric-val">100%</div><div class="metric-label">Human Gates for<br>Risky Exports</div></div>
+      <div class="metric"><div class="metric-val">A/B</div><div class="metric-label">Model and Runtime<br>Eval Harness</div></div>
+    </div>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ═══════════ 12 ROADMAP ═══════════ -->
+<section class="pad-section bg-white" data-section="Roadmap">
+  <div class="wrap-narrow reveal">
+    <div class="sec-label">12 &mdash; Roadmap</div>
+    <h2 class="sec-title">Implementation Phases</h2>
+    <p class="body-text">The roadmap prioritizes proving the spatial reasoning loop before expanding into multi-part workflows, model fine-tuning, or broad productization. The first milestone should be a single-part design loop that engineering leads can evaluate against real geometry evidence.</p>
+  </div>
+
+  <div class="wrap reveal">
+    <div class="roadmap reveal-stagger">
+      <div class="phase">
+        <div class="phase-badge">Weeks 1&ndash;4</div>
+        <div class="phase-title">MVP Geometry Loop</div>
+        <ul class="phase-list">
+          <li>Implement Temporal workflow with coarse stages</li>
+          <li>Define semantic primitive schema and validation</li>
+          <li>Compile primitives into CadQuery solids</li>
+          <li>Run MeshLib inspection for validity and clearances</li>
+          <li>Generate multi-view renders and evidence bundle</li>
+          <li>Emit editable ForgeCAD code for accepted outputs</li>
+        </ul>
+      </div>
+      <div class="phase">
+        <div class="phase-badge">Weeks 5&ndash;8</div>
+        <div class="phase-title">Reasoning and Review</div>
+        <ul class="phase-list">
+          <li>Add RLM context exploration over docs and examples</li>
+          <li>Build 3D verifier using geometry and render evidence</li>
+          <li>Implement bounded repair loop and failure taxonomy</li>
+          <li>Add approval signals and live status queries</li>
+          <li>Persist primitive traces and verifier rubrics</li>
+          <li>Create eval suite for representative CAD prompts</li>
+        </ul>
+      </div>
+      <div class="phase">
+        <div class="phase-badge">Weeks 9&ndash;12</div>
+        <div class="phase-title">Scale and Productization</div>
+        <ul class="phase-list">
+          <li>Add multi-part child workflows after MVP loop works</li>
+          <li>Introduce task queues for planning, geometry, render, export</li>
+          <li>Harden sandboxing, artifact storage, and policy gates</li>
+          <li>Add OpenTelemetry and workflow cost reporting</li>
+          <li>Use traces for evals, distillation, and fine-tuning</li>
+          <li>Load test concurrent workflows and large artifact payloads</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ═══════════ 13 RISKS ═══════════ -->
+<section class="pad-section bg-snow" data-section="Risks">
+  <div class="wrap-narrow reveal">
+    <div class="sec-label">13 &mdash; Risks</div>
+    <h2 class="sec-title">Risks &amp; Mitigations</h2>
+  </div>
+
+  <div class="wrap reveal">
+    <table class="risk-table">
+      <thead>
+        <tr><th style="width:28%">Risk</th><th style="width:10%">Severity</th><th>Mitigation</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="risk-name">Semantic primitives are too weak</td><td><span class="sev sev-high">High</span></td><td class="risk-mit">Start with a narrow single-part primitive set. Require schemas, validation, examples, and explicit unsupported-feature errors before expanding scope.</td></tr>
+        <tr><td class="risk-name">Visual verifier misses geometric failures</td><td><span class="sev sev-high">High</span></td><td class="risk-mit">Never rely on rendered images alone. Pair every visual review with MeshLib/CadQuery evidence for dimensions, intersections, clearances, topology, and constraints.</td></tr>
+        <tr><td class="risk-name">CadQuery to ForgeCAD translation drift</td><td><span class="sev sev-high">High</span></td><td class="risk-mit">Treat CadQuery as canonical during generation. Add translation tests that compare rendered and measured ForgeCAD outputs against the accepted geometry artifact.</td></tr>
+        <tr><td class="risk-name">Mesh repair hides design mistakes</td><td><span class="sev sev-med">Med</span></td><td class="risk-mit">Separate repairable mesh defects from semantic design failures. Record every repair, cap repair attempts, and require human review for non-trivial geometry changes.</td></tr>
+        <tr><td class="risk-name">Temporal event history overflow</td><td><span class="sev sev-med">Med</span></td><td class="risk-mit">Persist primitive detail as artifacts and store references in workflow history. Continue-As-New before 40k events for long-running explorations.</td></tr>
+        <tr><td class="risk-name">RLM cost and latency amplification</td><td><span class="sev sev-med">Med</span></td><td class="risk-mit">Cap recursion depth, require bounded repair loops, cache context exploration, and route simple inspections to smaller models or deterministic checks.</td></tr>
+        <tr><td class="risk-name">Sandbox and tool execution risk</td><td><span class="sev sev-med">Med</span></td><td class="risk-mit">Run geometry tools in isolated workers with resource limits, read-only inputs where possible, no ambient credentials, timeout enforcement, and artifact size quotas.</td></tr>
+        <tr><td class="risk-name">Scope expands before MVP proof</td><td><span class="sev sev-low">Low</span></td><td class="risk-mit">Defer multi-part orchestration, fine-tuning, and broad export support until the single-part Thinking in 3D loop passes the decision metrics.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ═══════════ 14 TRACE CAPTURE AND EVALS ═══════════ -->
+<section class="pad-section bg-white" data-section="Trace to Evals">
+  <div class="wrap-narrow reveal">
+    <div class="sec-label">14 &mdash; Trace Capture &amp; Evals</div>
+    <h2 class="sec-title">From Runtime Traces to Better CAD Agents</h2>
+    <p class="lede">Every attempt should become evaluation data before it becomes training data.</p>
+    <p class="body-text">The most valuable platform byproduct is a structured record of how agents think and act in geometry space. Successful attempts show reusable strategies. Failed attempts expose missing primitives, weak verifiers, bad assumptions, and translation drift. The trace corpus should first power regression tests and model/runtime comparisons; fine-tuning comes later, after the team trusts the labels and failure taxonomy.</p>
+  </div>
+
+  <div class="wrap reveal">
+    <h3 class="sec-subtitle" style="margin-top:1rem">What Gets Captured</h3>
+    <div class="state-grid">
+      <div class="state-item">
+        <h4>Planning Traces</h4>
+        <p>Prompt interpretation, extracted constraints, assumptions, primitive plans, repair hypotheses, and unsupported-feature decisions.</p>
+      </div>
+      <div class="state-item">
+        <h4>Geometry Evidence</h4>
+        <p>CadQuery construction metadata, MeshLib diagnostics, measurements, collision checks, clearances, repair outcomes, and artifact links.</p>
+      </div>
+      <div class="state-item">
+        <h4>Visual Evidence</h4>
+        <p>Canonical render sets, annotated failure views, verifier prompts, model judgments, human review notes, and screenshot comparisons.</p>
+      </div>
+      <div class="state-item">
+        <h4>Outcome Labels</h4>
+        <p>Pass/fail reason, first-pass status, number of repairs, human approval decision, export readiness, and regression category.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap reveal">
+    <h3 class="sec-subtitle">Trace-to-Evaluation Pipeline</h3>
+    <table class="data-table">
+      <thead>
+        <tr><th>Stage</th><th>Process</th><th>Output</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><span class="tool-name">1. Capture</span></td><td>Persist stage metadata, primitive trace, geometry evidence, rendered views, verifier scores, and human decisions after each attempt.</td><td class="tool-integration">Raw trace bundle</td></tr>
+        <tr><td><span class="tool-name">2. Normalize</span></td><td>Convert traces into a stable schema with prompt, plan, artifacts, measurements, rendered evidence, repair actions, and outcome labels.</td><td class="tool-integration">Queryable corpus</td></tr>
+        <tr><td><span class="tool-name">3. Classify</span></td><td>Tag failures by root cause: primitive gap, geometry invalidity, visual mismatch, translation drift, verifier miss, or user ambiguity.</td><td class="tool-integration">Failure taxonomy</td></tr>
+        <tr><td><span class="tool-name">4. Regress</span></td><td>Replay representative prompts against new models, primitive schemas, verifier rubrics, and runtime versions.</td><td class="tool-integration">Agent eval suite</td></tr>
+        <tr><td><span class="tool-name">5. Improve</span></td><td>Use trace patterns to add primitives, tighten rubrics, improve repair policies, and create targeted examples for future model adaptation.</td><td class="tool-integration">Runtime and model backlog</td></tr>
+        <tr><td><span class="tool-name">6. Fine-Tune Later</span></td><td>Only after label quality stabilizes, transform successful and failed traces into supervised or preference data for domain-specialized models.</td><td class="tool-integration">Training-ready dataset</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="wrap-narrow reveal" style="margin-top: 2rem;">
+    <h3 class="sec-subtitle">Model Tiering Strategy</h3>
+    <p class="body-text">Once the evaluation harness is stable, model routing can become cost-aware. Smaller or specialized models can handle routine primitive planning and repair suggestions, while frontier multimodal models remain reserved for ambiguous intent, novel geometry, and high-risk verification. Temporal task queues make that routing operational, but the routing policy should be driven by measured quality rather than assumption.</p>
+    <p class="body-text">The trace flywheel is therefore practical: traces improve evals, evals reveal where the runtime or model fails, and only trusted labels graduate into fine-tuning or distillation. This protects the platform from training on noisy geometry mistakes.</p>
+  </div>
+
+  <div class="wrap reveal" style="margin-top: 2rem;">
+    <div class="metrics reveal-stagger">
+      <div class="metric"><div class="metric-val">1</div><div class="metric-label">Trace Schema<br>per Attempt</div></div>
+      <div class="metric"><div class="metric-val">6</div><div class="metric-label">Core Failure<br>Categories</div></div>
+      <div class="metric"><div class="metric-val">A/B</div><div class="metric-label">Model and Runtime<br>Comparisons</div></div>
+      <div class="metric"><div class="metric-val">Later</div><div class="metric-label">Fine-Tune After<br>Label Trust</div></div>
+    </div>
+  </div>
+</section>
+
+<hr class="hr">
+
+<!-- ═══════════ 15 CONCLUSION ═══════════ -->
+<section class="pad-section bg-white" data-section="Conclusion">
+  <div class="wrap-narrow reveal">
+    <div class="sec-label">15 &mdash; Conclusion</div>
+    <h2 class="sec-title">Decision Summary</h2>
+    <p class="body-text">The recommended direction is to approve the Geometry Agent Harness as a platform capability for CAD agent evaluation and development. The architecture is strongest when ForgeCAD is treated as the editable product surface, not the geometry authority. CadQuery owns solid generation, MeshLib owns inspection and repair evidence, and the Geometry Agent Runtime exposes semantic primitives above both.</p>
+    <p class="body-text">Temporal remains important, but its role is durable orchestration across coarse stages rather than recording every primitive call. That separation keeps workflow history manageable while preserving recoverability, approval gates, and audit references. The runtime trace becomes the detailed evidence layer for engineering review, evals, and eventual model improvement.</p>
+    <p class="body-text">The next decision should be an MVP build focused on one thing: prove the Thinking in 3D loop for single-part CAD workflows. Multi-part orchestration, model fine-tuning, and broad export coverage should wait until that loop can reliably generate, inspect, repair, verify, and hand off editable geometry.</p>
+  </div>
+</section>
+
+<!-- ═══════════ FOOTER ═══════════ -->
+<footer class="footer">
+  <div class="footer-brand">Engineering Design Review</div>
+  <p>Geometry Agent Harness &mdash; RLM + Temporal + CadQuery + MeshLib + ForgeCAD &mdash; May 2026</p>
+</footer>
+
+<!-- ═══════════ SCRIPT ═══════════ -->
+<script>
+// ── Reading progress ──
+const progressBar = document.getElementById('progress');
+window.addEventListener('scroll', () => {
+  const h = document.documentElement.scrollHeight - window.innerHeight;
+  progressBar.style.width = h > 0 ? (window.scrollY / h * 100) + '%' : '0%';
+}, { passive: true });
+
+// ── Editorial cursor glow ──
+const glow = document.getElementById('glow');
+if (glow) {
+  window.addEventListener('pointermove', (event) => {
+    glow.style.left = event.clientX + 'px';
+    glow.style.top = event.clientY + 'px';
+  }, { passive: true });
+}
+
+// ── Sticky nav with section tracking ──
+const nav = document.getElementById('nav');
+const navSection = document.getElementById('nav-section');
+const sections = document.querySelectorAll('[data-section]');
+let ticking = false;
+
+function updateNav() {
+  const scrollY = window.scrollY;
+  nav.classList.toggle('visible', scrollY > window.innerHeight * 0.8);
+
+  let current = '';
+  sections.forEach(s => {
+    if (s.offsetTop - 200 <= scrollY) current = s.dataset.section;
+  });
+  navSection.textContent = current;
+  ticking = false;
+}
+
+window.addEventListener('scroll', () => {
+  if (!ticking) { requestAnimationFrame(updateNav); ticking = true; }
+}, { passive: true });
+
+// ── Scroll reveal ──
+const revealObserver = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('is-visible'); });
+}, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+
+document.querySelectorAll('.reveal, .reveal-stagger').forEach(el => revealObserver.observe(el));
+</script>
+</body>
+</html>

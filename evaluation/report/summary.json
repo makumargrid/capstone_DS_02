@@ -1,0 +1,94 @@
+{
+  "passed": 11,
+  "total": 11,
+  "results": [
+    {
+      "name": "impeller_swept_ok",
+      "kind": "part",
+      "expect": "pass",
+      "actual": "pass",
+      "ok": true,
+      "detail": "uncovered: "
+    },
+    {
+      "name": "bracket_bolts_ok",
+      "kind": "part",
+      "expect": "pass",
+      "actual": "pass",
+      "ok": true,
+      "detail": "uncovered: "
+    },
+    {
+      "name": "impeller_flat_blades",
+      "kind": "part",
+      "expect": "fail",
+      "actual": "fail",
+      "ok": true,
+      "detail": "uncovered: r2"
+    },
+    {
+      "name": "impeller_wrong_count",
+      "kind": "part",
+      "expect": "fail",
+      "actual": "fail",
+      "ok": true,
+      "detail": "uncovered: r1"
+    },
+    {
+      "name": "blade_too_thick_8mm",
+      "kind": "part",
+      "expect": "fail",
+      "actual": "fail",
+      "ok": true,
+      "detail": "blades.uniform_thickness_mm: measured 8.0 expected 2"
+    },
+    {
+      "name": "missing_required_param",
+      "kind": "part",
+      "expect": "fail",
+      "actual": "fail",
+      "ok": true,
+      "detail": "L1 invalid"
+    },
+    {
+      "name": "assembly_stack_ok",
+      "kind": "assembly",
+      "expect": "pass",
+      "actual": "pass",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "assembly_interference",
+      "kind": "assembly",
+      "expect": "fail",
+      "actual": "fail",
+      "ok": true,
+      "detail": "base->top.no_interference: measured 8000.0 expected <= 1.0"
+    },
+    {
+      "name": "assembly_floating",
+      "kind": "assembly",
+      "expect": "fail",
+      "actual": "fail",
+      "ok": true,
+      "detail": "base->top.contact: measured 40.0 expected <= 0.5"
+    },
+    {
+      "name": "assembly_cycle",
+      "kind": "assembly",
+      "expect": "fail",
+      "actual": "fail",
+      "ok": true,
+      "detail": "L1 invalid (mate graph has a cycle near 'b')"
+    },
+    {
+      "name": "assembly_no_grounded",
+      "kind": "assembly",
+      "expect": "fail",
+      "actual": "fail",
+      "ok": true,
+      "detail": "L1 invalid (exactly one component must be grounded (got 0))"
+    }
+  ]
+}

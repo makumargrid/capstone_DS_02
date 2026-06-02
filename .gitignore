@@ -1,7 +1,31 @@
-.env
-outputs/
+# Virtual environments
+.venv/
+.venv_old_py314/
+env/
+venv/
+
+# Caches & Python
 __pycache__/
 *.pyc
-capability.md
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.pytest_cache/
+
+# OS specific
 .DS_Store
+
+# Secrets and environment variables
+.env
+*.env
+
+# Outputs and runs
+outputs/
+
+# IDE & Editor
+.vscode/
+.idea/
+.claude/
+
+# Project specific
 agents/.agnts/

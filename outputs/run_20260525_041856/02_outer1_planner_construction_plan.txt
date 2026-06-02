@@ -1,0 +1,151 @@
+### CONSTRUCTION PLAN:
+
+The feedback indicated strict bounding box limits were violated. The entire AC unit assembly must strictly respect a Y-dimension of exactly 800.0mm and a Z-dimension of exactly 650.0mm. I will restructure the entire model to enforce this bounding box deterministically while preserving DFM constraints.
+
+1. **The Wall (Context & Bounding Element)**
+   - Y length: 800mm, Z height: 650mm, X thickness: 100mm.
+   - Bounding box spans exactly Y = [-400, 400] and Z = [0, 650].
+   - All other components will be carefully sized to remain strictly within these Y and Z limits.
+
+2. **Indoor Unit (Inside, X < 0)**
+   - To adhere to 45° overhang rules without print supports, the main body is created via a loft. It anchors to the wall and expands upwards/outwards.
+   - Anchor profile (at wall): 700mm wide (Y), starting at Z=400 to Z=600.
+   - Front profile (at X=-200): 380mm wide (Y), starting at Z=560 to Z=600.
+   - Delta Z and Delta Y equal Delta X (160mm), ensuring perfectly printable 45° bottom and side overhangs.
+   - A small display block is embedded on the front face.
+
+3. **Outdoor Unit (Outside, X > 0)**
+   - Base sits directly on the ground (Z=0 to Z=550) to prevent any massive chassis overhangs.
+   - Dimensions: 250mm thick (X spans 100 to 350), 700mm long (Y spans -350 to 350).
+
+4. **Fan Assembly (External +X face, DFM Optimized)**
+   - **Cutout**: Instead of a circle (which creates 90° overhang ceilings), we use a diamond shape (4-sided polygon) cut 30mm deep. This guarantees safe 45° overhang ceilings.
+   - **Hub**: A pyramidal loft that sweeps out to a point, preventing cantilevered droop.
+   - **Blades**: A thick cross structure. The horizontal blade gets a deep bottom chamfer to provide a 45° upward slope. The vertical blade prints perfectly against the back wall.
+   - **Grille**: Over-tall vertical pillars (Z=80 to Z=520) anchor deep into the solid body above and below the diamond cutout, printing straight up like supported towers.
+
+5. **Connecting Pipe**
+   - A diamond-profiled extrusion (Z=500, Y=0) seamlessly bridging the empty space between the wall and the outdoor unit, fully embedded into the solid cores of the indoor and outdoor units to create a single watertight manifold.
+
+### CADQUERY CODE:
+
+```python
+import cadquery as cq
+
+# 1. THE WALL
+# Acts as structural separator and precisely sets the Y=800, Z=650 bounds.
+wall = (
+    cq.Workplane("XY")
+    .box(100, 800, 650, centered=(True, True, False))
+    .edges("|Y and >Z").chamfer(10)
+)
+
+# 2. INDOOR UNIT (X < 0)
+# Loft ensures exactly 45-degree slopes for safe, support-free printing.
+indoor = (
+    cq.Workplane("YZ")
+    .workplane(offset=-40) # Embeds 10mm into the wall (X=-50)
+    .center(0, 500)
+    .rect(700, 200) # Rear face: Y [-350, 350], Z [400, 600]
+    .workplane(offset=-160) # Moves to X=-200
+    .center(0, 80)
+    .rect(380, 40) # Front face: Y [-190, 190], Z [560, 600]
+    .loft()
+)
+
+# Display panel on the front face
+display = (
+    cq.Workplane("XY")
+    .workplane(offset=580)
+    .center(-195, 0)
+    .box(20, 100, 20, centered=(True, True, True))
+)
+indoor = indoor.union(display)
+
+# 3. OUTDOOR UNIT (X > 0)
+# Sits flush on the ground (Z=0) avoiding huge support gaps.
+outdoor = (
+    cq.Workplane("XY")
+    .center(225, 0)
+    .box(250, 700, 550, centered=(True, True, False)) # X [100, 350]
+    .edges("|Z").chamfer(20)
+)
+
+# Fan Cutout (Diamond shape explicitly avoids flat unprintable ceilings)
+fan_cutout = (
+    cq.Workplane("YZ")
+    .workplane(offset=350)
+    .center(0, 300)
+    .polygon(4, 380) # Diamond with 380mm diameter
+    .extrude(-30)
+)
+outdoor = outdoor.cut(fan_cutout)
+
+# 4. FAN ASSEMBLY
+# Pyramidal Hub sweeps to a point to avoid horizontal cantilevers
+hub = (
+    cq.Workplane("YZ")
+    .workplane(offset=319) # Embed 1mm into floor of cutout
+    .center(0, 300)
+    .polygon(4, 100)
+    .workplane(offset=31) # Extrudes to X=350
+    .polygon(4, 1) # Tiny tip
+    .loft()
+)
+
+# Horizontal blade (Chamfered underneath for DFM printability)
+blade1 = (
+    cq.Workplane("YZ")
+    .workplane(offset=319)
+    .center(0, 300)
+    .rect(360, 20)
+    .extrude(20) # Extrudes to X=339
+    .edges("<Z and >X")
+    .chamfer(19) # Transforms the bottom into a safe 45-degree slope
+)
+
+# Vertical blade (Inherently safe since it builds up the back wall)
+blade2 = (
+    cq.Workplane("YZ")
+    .workplane(offset=319)
+    .center(0, 300)
+    .rect(20, 360)
+    .extrude(20)
+)
+
+# Vertical Grille Bars (Towers that embed into solid top/bottom to avoid bridges)
+bars = None
+for y_pos in [-120, -60, 0, 60, 120]:
+    bar = (
+        cq.Workplane("YZ")
+        .workplane(offset=341)
+        .center(y_pos, 300)
+        .rect(10, 440) # Overextends in Z to anchor into the solid body
+        .extrude(9) # Flush to X=350
+    )
+    if bars is None:
+        bars = bar
+    else:
+        bars = bars.union(bar)
+
+fan_assembly = hub.union(blade1).union(blade2).union(bars)
+outdoor = outdoor.union(fan_assembly)
+
+# 5. CONNECTING PIPE
+# Diamond profile bridge connecting indoor and outdoor perfectly
+pipe = (
+    cq.Workplane("YZ")
+    .workplane(offset=-100) # Starts inside indoor unit
+    .center(0, 500)
+    .polygon(4, 60)
+    .extrude(250) # Ends securely inside outdoor unit at X=150
+)
+
+# 6. FINAL ASSEMBLY
+result_solid = (
+    wall
+    .union(indoor)
+    .union(outdoor)
+    .union(pipe)
+)
+```

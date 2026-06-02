@@ -1,0 +1,67 @@
+{
+    "base_stats": {
+        "is_watertight": false,
+        "volume_mm3": 216999.33
+    },
+    "degenerate_faces": 585,
+    "self_intersections": {
+        "has_self_intersections": true,
+        "intersecting_face_count": 1013
+    },
+    "normals_consistency": {
+        "normals_consistent": false,
+        "flipped_regions": 332
+    },
+    "wall_thickness": {
+        "raw_min_wall_thickness_mm": 0.004,
+        "min_wall_thickness_mm": 0.989,
+        "p5_wall_thickness_mm": 5.672,
+        "median_wall_thickness_mm": 12.507,
+        "thin_region_count": 1,
+        "artifact_count": 6,
+        "total_samples": 996,
+        "passes_minimum": true,
+        "thin_regions_sample": [
+            {
+                "face_id": 262,
+                "thickness_mm": 0.989,
+                "face_center_z_mm": 60.0
+            }
+        ]
+    },
+    "dimensions_check": {
+        "dimensions": {
+            "x_mm": {
+                "expected": 139.4,
+                "measured": 120.113,
+                "delta_mm": 19.287,
+                "tolerance_mm": 15,
+                "passed": false
+            },
+            "y_mm": {
+                "expected": 139.4,
+                "measured": 123.201,
+                "delta_mm": 16.199,
+                "tolerance_mm": 15,
+                "passed": false
+            },
+            "z_mm": {
+                "expected": 73.0,
+                "measured": 62.519,
+                "delta_mm": 10.481,
+                "tolerance_mm": 15,
+                "passed": true
+            }
+        },
+        "all_dimensions_pass": false
+    },
+    "overall_valid": false,
+    "hard_failures": [
+        "Mesh is not watertight (has holes or open boundaries)",
+        "Mesh has 1013 self-intersecting faces",
+        "Mesh has 332 flipped/inconsistent normal regions",
+        "Dimension x_mm: expected 139.4mm, measured 120.113mm (delta 19.287mm)",
+        "Dimension y_mm: expected 139.4mm, measured 123.201mm (delta 16.199mm)"
+    ],
+    "soft_failures": []
+}

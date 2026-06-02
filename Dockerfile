@@ -7,8 +7,8 @@ WORKDIR /app
 # Install CadQuery using the official Conda channels
 RUN conda install -y -c cadquery -c conda-forge cadquery
 
-# Install MeshLib, Google GenAI SDK, ADK, and server packages via pip
-RUN pip install meshlib google-genai google-adk[db]==1.18.0 sqlalchemy aiosqlite fastapi uvicorn pydantic python-dotenv python-multipart
+# Install MeshLib, Google GenAI SDK, ADK, rendering, and server packages via pip
+RUN pip install meshlib google-genai google-adk[db]==2.0.0 sqlalchemy aiosqlite fastapi uvicorn pydantic python-dotenv python-multipart anthropic matplotlib jsonschema
 
 # Copy your pipeline script into the container
 COPY . /app

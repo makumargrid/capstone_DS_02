@@ -1,0 +1,203 @@
+import cadquery as cq
+import math
+
+# ── Parameters ────────────────────────────────────────────────────────────────
+HUB_R_BASE   = 50.0
+HUB_R_TOP    = 15.0
+HUB_H        = 60.0
+BORE_R       = 7.5
+NUM_BLADES   = 7
+BLADE_T      = 2.8       # 2.2 × 1.26 = 2.772 → 2.8mm (≥2.5mm DFM floor)
+BLADE_H_BOT  = 15.0
+BLADE_H_TOP  = 5.0
+TWIST_DEG    = 60.0
+N_SEC        = 22        # loft cross-section count — more for smoother result
+EMBED        = 4.5       # mm blade embeds INTO hub cone surface (increased from 3.0)
+
+# Blade z_frac range: extend beyond [0,1] so caps are buried inside hub faces
+Z_FRAC_MIN   = -0.08     # extends ~4.8mm below Z=0
+Z_FRAC_MAX   =  1.08     # extends ~4.8mm above Z=60
+
+# Cone slope geometry
+dR_dZ = (HUB_R_TOP - HUB_R_BASE) / HUB_H   # = -35/60 ≈ -0.5833
+
+# Outward unit normal to the cone surface
+# Cone surface: r = R_BASE + dR_dZ * z
+# Gradient in (r,z): (1, -dR_dZ), normalized:
+mag    = math.sqrt(1.0 + dR_dZ**2)
+nR_hat =  1.0 / mag
+nZ_hat = -dR_dZ / mag   # positive (upward) since dR_dZ < 0
+
+# ── Helper: one blade cross-section wire ─────────────────────────────────────
+def make_section_wire(z_frac, base_twist_deg=0.0):
+    """
+    Closed quadrilateral wire for the blade cross-section at z_frac.
+    z_frac can be slightly outside [0,1] to bury blade ends inside hub.
+    Winding order ALWAYS: b0 → b1 → t2 → t3 → close (consistent CCW).
+    """
+    z_val  = z_frac * HUB_H
+    r_cone = HUB_R_BASE + dR_dZ * z_val
+
+    # Clamp r_cone to a minimum to avoid degenerate geometry near axis
+    r_cone = max(r_cone, BORE_R + BLADE_T + 1.0)
+
+    # Angular position: CCW twist accumulates with height
+    theta = math.radians(base_twist_deg + TWIST_DEG * z_frac)
+
+    # Centre point on (extrapolated) cone surface
+    cx = r_cone * math.cos(theta)
+    cy = r_cone * math.sin(theta)
+    cz = z_val
+
+    # Tangent unit vector (CCW in XY, zero Z component)
+    tx = -math.sin(theta)
+    ty =  math.cos(theta)
+
+    # Outward surface normal (radial + vertical components)
+    nx = nR_hat * math.cos(theta)
+    ny = nR_hat * math.sin(theta)
+    nz = nZ_hat
+
+    # Blade protrusion at this station — clamp z_frac to [0,1] for taper calc
+    zf_clamped = max(0.0, min(1.0, z_frac))
+    h_blade = BLADE_H_BOT + (BLADE_H_TOP - BLADE_H_BOT) * zf_clamped
+
+    half_t = BLADE_T / 2.0
+
+    # Base corners: EMBED mm INSIDE cone surface (along -normal)
+    b0 = cq.Vector(cx - half_t*tx - EMBED*nx,
+                   cy - half_t*ty - EMBED*ny,
+                   cz              - EMBED*nz)
+    b1 = cq.Vector(cx + half_t*tx - EMBED*nx,
+                   cy + half_t*ty - EMBED*ny,
+                   cz              - EMBED*nz)
+
+    # Tip corners: h_blade mm OUTSIDE cone surface (along +normal)
+    t2 = cq.Vector(cx + half_t*tx + h_blade*nx,
+                   cy + half_t*ty + h_blade*ny,
+                   cz              + h_blade*nz)
+    t3 = cq.Vector(cx - half_t*tx + h_blade*nx,
+                   cy - half_t*ty + h_blade*ny,
+                   cz              + h_blade*nz)
+
+    # Assemble closed wire — consistent winding b0 → b1 → t2 → t3 → b0
+    edges = [
+        cq.Edge.makeLine(b0, b1),
+        cq.Edge.makeLine(b1, t2),
+        cq.Edge.makeLine(t2, t3),
+        cq.Edge.makeLine(t3, b0),
+    ]
+    return cq.Wire.assembleEdges(edges)
+
+# ── Step 1: Hub frustum — extend slightly beyond Z=0 and Z=60 ────────────────
+# Extend hub 1mm below Z=0 and 1mm above Z=60 so blade cap intersections
+# are never coplanar with hub faces
+HUB_EXTEND   = 1.5      # extra mm added top and bottom
+hub_r_base_ext = HUB_R_BASE + abs(dR_dZ) * HUB_EXTEND   # slightly larger at extended base
+hub_r_top_ext  = HUB_R_TOP  - abs(dR_dZ) * HUB_EXTEND   # slightly smaller at extended top
+hub_r_top_ext  = max(hub_r_top_ext, BORE_R + 2.0)        # ensure wall stays valid
+
+hub_wp = (
+    cq.Workplane("XY")
+    .workplane(offset=-HUB_EXTEND)
+    .circle(hub_r_base_ext)
+    .workplane(offset=HUB_H + 2.0 * HUB_EXTEND)
+    .circle(hub_r_top_ext)
+    .loft()
+)
+hub_solid = hub_wp.val()
+
+# ── Step 2: Central bore ──────────────────────────────────────────────────────
+bore_solid = (
+    cq.Workplane("XY")
+    .workplane(offset=-(HUB_EXTEND + 2.0))
+    .circle(BORE_R)
+    .extrude(HUB_H + 2.0 * HUB_EXTEND + 4.0)
+    .val()
+)
+hub_solid = hub_solid.cut(bore_solid)
+
+# ── Step 3: Trim hub back to design Z=0 and Z=60 ─────────────────────────────
+# Cut away the extension above and below design range using box cuts
+# This ensures hub faces are clean at Z=0 and Z=60 AFTER blades are fused
+
+# We do NOT trim yet — keep the extended hub through the blade fuse,
+# then trim at the very end. This buries all blade-end intersections inside.
+
+# ── Step 4: Build blade-0 solid via loft ─────────────────────────────────────
+z_fracs  = []
+n        = N_SEC
+for i in range(n):
+    t = i / (n - 1)
+    zf = Z_FRAC_MIN + t * (Z_FRAC_MAX - Z_FRAC_MIN)
+    z_fracs.append(zf)
+
+wires_b0  = [make_section_wire(zf, base_twist_deg=0.0) for zf in z_fracs]
+blade0    = cq.Solid.makeLoft(wires_b0, ruled=False)
+
+# ── Step 5: Fuse all 7 blades into hub ───────────────────────────────────────
+blade_angle_step = 360.0 / NUM_BLADES   # ≈ 51.4286°
+running = hub_solid
+
+for i in range(NUM_BLADES):
+    angle_deg = i * blade_angle_step
+    blade_i = blade0.rotate(
+        cq.Vector(0.0, 0.0, 0.0),
+        cq.Vector(0.0, 0.0, 1.0),
+        angle_deg
+    )
+    running = running.fuse(blade_i)
+
+# ── Step 6: Trim to final design height Z=0 → Z=60 ───────────────────────────
+# Cut a large box below Z=0
+trim_size = 300.0
+trim_below = (
+    cq.Workplane("XY")
+    .workplane(offset=-(trim_size + HUB_EXTEND + 1.0))
+    .box(trim_size, trim_size, trim_size, centered=(True, True, False))
+    .val()
+)
+# Cut a large box above Z=60
+trim_above = (
+    cq.Workplane("XY")
+    .workplane(offset=HUB_H + HUB_EXTEND + 1.0)
+    .box(trim_size, trim_size, trim_size, centered=(True, True, False))
+    .translate((0, 0, -trim_size))
+    .val()
+)
+
+running = running.cut(trim_below)
+running = running.cut(trim_above)
+
+# ── Step 7: Fillet to clean up blade-to-cone junctions ───────────────────────
+result_solid = cq.Workplane("XY").add(running)
+
+try:
+    result_solid = cq.Workplane("XY").add(
+        running.fillet(1.5)
+    )
+    print("Global fillet 1.5mm applied successfully.")
+except Exception as e:
+    print(f"Global fillet failed ({e}), trying 0.8mm...")
+    try:
+        result_solid = cq.Workplane("XY").add(
+            running.fillet(0.8)
+        )
+        print("Fallback fillet 0.8mm applied.")
+    except Exception as e2:
+        print(f"All fillets failed ({e2}), proceeding without fillet.")
+        result_solid = cq.Workplane("XY").add(running)
+
+# ── Step 8: Centre on XY origin ───────────────────────────────────────────────
+bb = result_solid.val().BoundingBox()
+cx_off = -((bb.xmin + bb.xmax) / 2.0)
+cy_off = -((bb.ymin + bb.ymax) / 2.0)
+result_solid = result_solid.translate((cx_off, cy_off, 0))
+
+# ── Diagnostics ───────────────────────────────────────────────────────────────
+bb2 = result_solid.val().BoundingBox()
+print("=== Centrifugal Compressor Impeller ===")
+print(f"X span: {bb2.xmin:.2f} → {bb2.xmax:.2f}  ({bb2.xmax - bb2.xmin:.2f} mm)")
+print(f"Y span: {bb2.ymin:.2f} → {bb2.ymax:.2f}  ({bb2.ymax - bb2.ymin:.2f} mm)")
+print(f"Z span: {bb2.zmin:.2f} → {bb2.zmax:.2f}  ({bb2.zmax - bb2.zmin:.2f} mm)")
+print(f"BLADE_T = {BLADE_T}mm | EMBED = {EMBED}mm | Z_range [{Z_FRAC_MIN}, {Z_FRAC_MAX}]")

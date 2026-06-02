@@ -1,0 +1,137 @@
+import cadquery as cq
+import math
+
+# ─────────────────────────────────────────────
+# PARAMETERS
+# ─────────────────────────────────────────────
+HUB_BASE_R    = 50.0
+HUB_TOP_R     = 15.0
+HUB_H         = 60.0
+BORE_D        = 15.0
+N_BLADES      = 7
+BLADE_T       = 2.5        # blade thickness (circumferential), > 2mm DFM min
+BLADE_H_BOT   = 35.0       # protrusion above cone surface at base
+BLADE_H_TOP   = 5.0        # protrusion above cone surface at top
+EMBED_DEPTH   = 3.0        # how far blade extends INTO the cone surface (ensures watertight union)
+TWIST_DEG     = 60.0       # total angular twist from base to top
+N_STATIONS    = 16         # more stations = smoother loft, less self-intersection risk
+
+# ─────────────────────────────────────────────
+# CONE GEOMETRY
+# ─────────────────────────────────────────────
+dRdZ        = (HUB_TOP_R - HUB_BASE_R) / HUB_H   # -35/60 ≈ -0.5833
+tang_len    = math.sqrt(dRdZ**2 + 1.0)             # ≈ 1.158
+norm_r_unit = 1.0 / tang_len                        # outward radial component of cone normal
+norm_z_unit = -dRdZ / tang_len                      # upward component of cone normal
+
+
+def cone_radius(z):
+    return HUB_BASE_R + dRdZ * z
+
+
+def blade_cross_section(z_station, twist_angle_deg, blade_h, blade_t, embed):
+    """
+    Trapezoidal cross-section wire for blade loft.
+    Extends from -embed (inside cone) to +blade_h (outside cone) along the
+    outward cone normal. Width = blade_t in circumferential direction.
+    The base (inside) is slightly wider to ensure robust boolean intersection.
+    """
+    r_cone  = cone_radius(z_station)
+    ang_rad = math.radians(twist_angle_deg)
+
+    # Centre point ON the cone surface
+    cx = r_cone * math.cos(ang_rad)
+    cy = r_cone * math.sin(ang_rad)
+    cz = z_station
+
+    # Outward cone normal vector (3D)
+    nx = norm_r_unit * math.cos(ang_rad)
+    ny = norm_r_unit * math.sin(ang_rad)
+    nz = norm_z_unit
+
+    # Circumferential tangent
+    tx = -math.sin(ang_rad)
+    ty =  math.cos(ang_rad)
+
+    half_t      = blade_t / 2.0
+    half_t_wide = half_t + embed * 0.3   # slightly wider at embedded base for clean boolean
+
+    def pt(n_scale, t_scale):
+        return cq.Vector(
+            cx + n_scale * nx + t_scale * tx,
+            cy + n_scale * ny + t_scale * ty,
+            cz + n_scale * nz
+        )
+
+    # Trapezoid: wide at bottom (embedded inside), narrower at blade tip
+    p0 = pt(-embed,   -half_t_wide)   # inside cone, -t side
+    p1 = pt(-embed,   +half_t_wide)   # inside cone, +t side
+    p2 = pt(blade_h,  +half_t)        # blade tip,   +t side
+    p3 = pt(blade_h,  -half_t)        # blade tip,   -t side
+
+    wire = cq.Wire.makePolygon([p0, p1, p2, p3, p0])
+    return wire
+
+
+def build_one_blade(start_angle_deg=0.0):
+    """
+    Build a single blade as a loft through N_STATIONS cross-sections.
+    Each section is embedded 3mm into the cone surface for watertight boolean.
+    """
+    wires = []
+    for i in range(N_STATIONS):
+        t     = i / (N_STATIONS - 1)
+        z_s   = t * HUB_H
+        ang_s = start_angle_deg + t * TWIST_DEG
+        h_s   = BLADE_H_BOT + t * (BLADE_H_TOP - BLADE_H_BOT)
+
+        w = blade_cross_section(z_s, ang_s, h_s, BLADE_T, EMBED_DEPTH)
+        wires.append(w)
+
+    blade_solid = cq.Solid.makeLoft(wires, ruled=False)
+    return blade_solid
+
+
+# ─────────────────────────────────────────────
+# 1. HUB — truncated cone via loft
+# ─────────────────────────────────────────────
+hub = (
+    cq.Workplane("XY")
+    .circle(HUB_BASE_R)
+    .workplane(offset=HUB_H)
+    .circle(HUB_TOP_R)
+    .loft()
+)
+
+# ─────────────────────────────────────────────
+# 2. CENTRAL BORE — cut through Z axis
+# ─────────────────────────────────────────────
+bore = (
+    cq.Workplane("XY")
+    .circle(BORE_D / 2.0)
+    .extrude(HUB_H)
+)
+hub = hub.cut(bore)
+
+# ─────────────────────────────────────────────
+# 3. BUILD AND FUSE ALL 7 BLADES
+# ─────────────────────────────────────────────
+blade_angle_step = 360.0 / N_BLADES   # ≈ 51.43°
+
+# Start with hub as base, fuse each blade using .fuse() for robustness
+result_solid = hub
+
+for i in range(N_BLADES):
+    start_angle = i * blade_angle_step
+    blade       = build_one_blade(start_angle_deg=start_angle)
+
+    # Wrap blade Solid in a Workplane shape
+    blade_wp = cq.Workplane("XY").add(blade)
+
+    # Use .fuse() for robust non-planar boolean union
+    result_solid = result_solid.fuse(blade_wp, glue=False, tol=0.01)
+
+# ─────────────────────────────────────────────
+# 4. CLEAN UP — heal any remaining seams
+# ─────────────────────────────────────────────
+result_solid = result_solid.clean()

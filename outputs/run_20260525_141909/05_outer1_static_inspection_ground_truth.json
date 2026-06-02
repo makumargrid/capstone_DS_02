@@ -1,0 +1,59 @@
+{
+    "base_stats": {
+        "is_watertight": true,
+        "volume_mm3": 26680774.4
+    },
+    "degenerate_faces": 0,
+    "self_intersections": {
+        "has_self_intersections": false,
+        "intersecting_face_count": 0
+    },
+    "normals_consistency": {
+        "normals_consistent": true,
+        "flipped_regions": 0
+    },
+    "wall_thickness": {
+        "raw_min_wall_thickness_mm": 8.0,
+        "min_wall_thickness_mm": 8.0,
+        "p5_wall_thickness_mm": 10.0,
+        "median_wall_thickness_mm": 15.997,
+        "thin_region_count": 0,
+        "artifact_count": 0,
+        "total_samples": 1000,
+        "passes_minimum": true,
+        "thin_regions_sample": []
+    },
+    "dimensions_check": {
+        "dimensions": {
+            "x_mm": {
+                "expected": 600.0,
+                "measured": 400.0,
+                "delta_mm": 200.0,
+                "tolerance_mm": 15.0,
+                "passed": false
+            },
+            "y_mm": {
+                "expected": 400.0,
+                "measured": 741.374,
+                "delta_mm": 341.374,
+                "tolerance_mm": 15.0,
+                "passed": false
+            },
+            "z_mm": {
+                "expected": 800.0,
+                "measured": 300.0,
+                "delta_mm": 500.0,
+                "tolerance_mm": 15.0,
+                "passed": false
+            }
+        },
+        "all_dimensions_pass": false
+    },
+    "overall_valid": false,
+    "hard_failures": [
+        "Dimension x_mm: expected 600.0mm, measured 400.0mm (delta 200.0mm)",
+        "Dimension y_mm: expected 400.0mm, measured 741.374mm (delta 341.374mm)",
+        "Dimension z_mm: expected 800.0mm, measured 300.0mm (delta 500.0mm)"
+    ],
+    "soft_failures": []
+}

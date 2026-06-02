@@ -1,0 +1,58 @@
+{
+    "base_stats": {
+        "is_watertight": true,
+        "volume_mm3": 155695190.53
+    },
+    "degenerate_faces": 0,
+    "self_intersections": {
+        "has_self_intersections": true,
+        "intersecting_face_count": 56
+    },
+    "normals_consistency": {
+        "normals_consistent": true,
+        "flipped_regions": 0
+    },
+    "wall_thickness": {
+        "raw_min_wall_thickness_mm": 5.657,
+        "min_wall_thickness_mm": 5.657,
+        "p5_wall_thickness_mm": 9.0,
+        "median_wall_thickness_mm": 220.0,
+        "thin_region_count": 0,
+        "artifact_count": 0,
+        "total_samples": 311,
+        "passes_minimum": true,
+        "thin_regions_sample": []
+    },
+    "dimensions_check": {
+        "dimensions": {
+            "x_mm": {
+                "expected": 850.0,
+                "measured": 555.0,
+                "delta_mm": 295.0,
+                "tolerance_mm": 150.0,
+                "passed": false
+            },
+            "y_mm": {
+                "expected": 800.0,
+                "measured": 800.0,
+                "delta_mm": 0.0,
+                "tolerance_mm": 150.0,
+                "passed": true
+            },
+            "z_mm": {
+                "expected": 650.0,
+                "measured": 650.0,
+                "delta_mm": 0.0,
+                "tolerance_mm": 150.0,
+                "passed": true
+            }
+        },
+        "all_dimensions_pass": false
+    },
+    "overall_valid": false,
+    "hard_failures": [
+        "Mesh has 56 self-intersecting faces",
+        "Dimension x_mm: expected 850.0mm, measured 555.0mm (delta 295.0mm)"
+    ],
+    "soft_failures": []
+}

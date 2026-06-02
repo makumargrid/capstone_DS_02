@@ -1,0 +1,12 @@
+{
+    "original_prompt": "Create a complex Centrifugal Compressor Impeller. 1. The main hub is a truncated cone with a base diameter of 100mm (at Z=0), a top diameter of 30mm (at Z=60), and a total height of 60mm. 2. The hub has a central bore hole of 15mm diameter going all the way through the Z axis for the driveshaft. 3. On the surface of the hub, create 7 swept curved aerodynamic blades. 4. Each blade should start at the base (radius 50mm) and curve upwards along the surface of the cone to the top (radius 15mm). 5. The blades should have a uniform thickness of 2mm, an outward protrusion (height off the hub surface) of 15mm at the base, tapering to 5mm at the top. 6. The blades should curve/twist around the Z axis by roughly 60 degrees from bottom to top to create the aerodynamic impeller shape. 7. Ensure the final object is a single unified solid, assigned to a variable named 'result_solid'. DO NOT use hallucinated Selectors, stick to standard CadQuery operations like workplanes, extrude, sweep, or loft.",
+    "expected_dims": {
+        "x_mm": 139.4,
+        "y_mm": 139.4,
+        "z_mm": 73.0,
+        "tolerance_mm": 15
+    },
+    "min_wall_mm": 2.0,
+    "manufacturing_process": null,
+    "primitives": []
+}

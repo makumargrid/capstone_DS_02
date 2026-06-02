@@ -1,458 +1,413 @@
 """
-Adversarial Multi-Agent CAD Pipeline
+Geometry IR Pipeline — the agentic harness orchestrator.
 
-Architecture:
-  Phase 1: Planning + Code Generation (Planner Agent with ask_user)
-  Phase 2: CadQuery Execution (inner retry for syntax errors)
-  Phase 3: Export STL + STEP
-  Phase 4: Static Checks (deterministic — mesh_inspector.py)
-  Phase 5: AI Inspection (MeshLib Agent — findings only, no verdict)
-  Phase 6: Adversarial Review (Reviewer Agent — cross-references static + AI)
+Flow (general for ANY prompt; no shape-specific code):
 
-The outer loop (Phases 2→6) feeds reviewer recommendations back to the
-Planner Agent's persistent session, enabling iterative refinement.
+  prompt
+    → Planner Agent  ............ emits Geometry IR (agents/planner_agent)
+    → L1 validate_plan .......... schema + refs (src/geometry_ir/validate.py)
+    → compile_design ............ IR → solid + provenance (geometry_ir/compiler)
+    → export STEP/STL
+    → L2 inspect_solid .......... deterministic intent ground truth
+    → L3 render_views + Vision .. advisory multimodal check
+    → (L4 MeshLib) .............. ONLY for custom/mesh_only nodes
+    → Reviewer .................. APPROVED / REDESIGN(node-keyed) / HALT
+        REDESIGN → revise_ir(feedback) → loop
+
+Artifacts per run (outputs/run_YYYYMMDD_HHMMSS/):
+  00 log · 01 design_brief · 02 planner text · 03 ir.json · 04 model.step/stl
+  05 solid_inspection (L2) · 06 vision (L3) · 07 reviewer verdict · 09 view PNGs
 """
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 import os
 import sys
-import datetime
 import json
+import datetime
 
-from src.logger import get_agent_logger
-from src.llm import PlannerAgent, extract_expected_dimensions
-from src.cad_executor import execute_cad_code, export_solid
-from src.mesh_inspector import run_all_inspections, has_hard_failures, has_soft_failures
-from agents.meshlib_agent import run_inspection
-from agents.reviewer_agent import run_adversarial_review
+from core.env import bootstrap_env
+from core.logger import get_agent_logger
+from core.process_detector import detect_process, load_profile
+from geometry_ir import validate_plan
+from primitives import compile_design, export_solid
+from verification import inspect_solid, render_views
+from core.spec import extract_spec, check_coverage, coverage_feedback, decompose
+from core.registry import request_acceptance, record
+
+MAX_OUTER = 6
+
+bootstrap_env()
 
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
+def _intent(ir: dict) -> dict:
+    """Compact intent (features + envelope) for vision/reviewer — no kernel data."""
+    return {"envelope": ir.get("envelope"), "process": ir.get("process"),
+            "features": [{"id": f["id"], "type": f["type"],
+                          "asserts": f.get("asserts")} for f in ir.get("features", [])]}
 
-MAX_CODE_RETRIES = 3     # Inner loop: fix syntax/execution errors
-MAX_OUTER_RETRIES = 3    # Outer loop: fix design intent failures
 
+def _design_prompt(prompt: str) -> str:
+    """Return the core design request, stripping iterate-injected context blocks.
 
-# ---------------------------------------------------------------------------
-# Helper: Smart code excerpt extraction
-# ---------------------------------------------------------------------------
+    iterate() now builds prompts using unambiguous delimiters:
+        <<<QA_START>>> ... <<<QA_END>>>
+        <original design request>
+        REVISION REQUESTED: ...
 
-def _extract_critical_code_section(full_code: str, keyword: str = "blade") -> str:
-    """Extract only the critical section of generated code relevant to the failure.
-    
-    Instead of sending the full 100-line code (which wastes context), we extract
-    only the section most likely responsible for the problem (e.g., the blade
-    generation loop).
-    
-    Strategy:
-    1. Find the first line containing the keyword (case-insensitive).
-    2. Walk backward to find the section start (a comment line starting with #).
-    3. Walk forward to find the section end (the next blank line followed by a comment,
-       or a line starting with a new section marker like "# ---").
-    4. Return that section (capped at 40 lines to stay context-efficient).
+    process_detector, extract_spec, and decompose use ONLY the core design request.
+    The planner still receives the full prompt (it needs revision + Q&A context).
     """
-    lines = full_code.split('\n')
-    keyword_lower = keyword.lower()
-    
-    # Find the first line containing the keyword
-    start_idx = None
-    for i, line in enumerate(lines):
-        if keyword_lower in line.lower():
-            start_idx = i
-            break
-    
-    if start_idx is None:
-        # Keyword not found — return the middle chunk of the code
-        mid = len(lines) // 2
-        return '\n'.join(lines[max(0, mid - 20):mid + 20])
-    
-    # Walk backward to find the section header
-    section_start = start_idx
-    for i in range(start_idx - 1, -1, -1):
-        stripped = lines[i].strip()
-        if stripped.startswith('# ---') or stripped.startswith('# ==='):
-            section_start = i
-            break
-        if stripped == '' and i < start_idx - 1:
-            section_start = i + 1
-            break
-    
-    # Walk forward to find the section end
-    section_end = min(start_idx + 30, len(lines))
-    for i in range(start_idx + 1, len(lines)):
-        stripped = lines[i].strip()
-        if stripped.startswith('# ---') or stripped.startswith('# ==='):
-            section_end = i
-            break
-    
-    # Cap at 40 lines
-    excerpt = '\n'.join(lines[section_start:min(section_end, section_start + 40)])
-    return excerpt
-
-
-def run_pipeline(request_prompt: str, output_base_dir: str = "outputs", interactive: bool = False):
-    """
-    Run the full adversarial multi-agent CAD pipeline.
-    
-    Args:
-        request_prompt: The natural language CAD design prompt.
-        output_base_dir: Base directory for all outputs.
-        interactive: If True, the planner agent can ask the user questions via stdin.
-    """
-    # -----------------------------------------------------------------------
-    # Setup
-    # -----------------------------------------------------------------------
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = os.path.join(output_base_dir, f"run_{timestamp}")
-    os.makedirs(output_dir, exist_ok=True)
-    
-    log_file = os.path.join(output_dir, "00_pipeline_execution.log")
-    logger = get_agent_logger(log_file)
-    
-    logger.info("=" * 70)
-    logger.info("ADVERSARIAL MULTI-AGENT CAD PIPELINE")
-    logger.info("=" * 70)
-    logger.info(f"Output directory: {output_dir}")
-    logger.info(f"Interactive mode: {interactive}")
-    logger.info(f"Prompt: {request_prompt[:200]}...")
-    
-    # -----------------------------------------------------------------------
-    # Pre-computation: Extract expected dimensions
-    # -----------------------------------------------------------------------
-    logger.info("[PRE] Extracting expected dimensions from prompt...")
-    expected_dimensions = extract_expected_dimensions(request_prompt)
-    logger.info(f"[PRE] Expected dimensions: {expected_dimensions}")
-    
-    # Build Design Brief — this is the structured specification that all agents reference
-    design_brief = {
-        "original_prompt": request_prompt,
-        "expected_dims": expected_dimensions,
-        "min_wall_mm": 2.0,
-        "manufacturing_process": None,
-        "primitives": []
-    }
-    
-    # Save the design brief
-    brief_path = os.path.join(output_dir, "01_design_brief.json")
-    with open(brief_path, "w") as f:
-        json.dump(design_brief, f, indent=4)
-    logger.info(f"[PRE] Design brief saved to {brief_path}")
-    
-    # -----------------------------------------------------------------------
-    # Initialize Planner Agent (persistent session across all iterations)
-    # -----------------------------------------------------------------------
-    logger.info("[INIT] Initializing Planner Agent with persistent session...")
-    planner = PlannerAgent(interactive=interactive)
-    
-    # -----------------------------------------------------------------------
-    # Phase 1: Initial Planning + Code Generation
-    # -----------------------------------------------------------------------
-    logger.info("[PHASE 1] Requesting Construction Plan + Code from Planner Agent...")
-    try:
-        full_response, code = planner.generate_cad_code(request_prompt)
-    except Exception as e:
-        logger.error(f"[PHASE 1] Planner Agent failed: {e}")
-        return
-    
-    # Save the plan + code response (this is the initial attempt before entering the loop)
-    # We'll save it as outer iteration 0 just to capture the initial state.
-    plan_path = os.path.join(output_dir, "02_outer0_planner_construction_plan.txt")
-    with open(plan_path, "w") as f:
-        f.write(full_response)
-    logger.info(f"[PHASE 1] Initial construction plan saved to {plan_path}")
-    
-    # -----------------------------------------------------------------------
-    # Outer Loop: Generate → Execute → Inspect → Review → (Feedback)
-    # -----------------------------------------------------------------------
-    for outer_attempt in range(1, MAX_OUTER_RETRIES + 1):
-        logger.info(f"\n{'='*70}")
-        logger.info(f"OUTER LOOP — Iteration {outer_attempt}/{MAX_OUTER_RETRIES}")
-        logger.info(f"{'='*70}")
-        
-        # -------------------------------------------------------------------
-        # Phase 2: Execute code (with inner retry for syntax errors)
-        # -------------------------------------------------------------------
-        solid = None
-        current_code = code
-        
-        for code_attempt in range(1, MAX_CODE_RETRIES + 1):
-            logger.info(f"[PHASE 2] Code execution attempt {code_attempt}/{MAX_CODE_RETRIES}...")
-            
-            # Save the code
-            code_path = os.path.join(output_dir, f"03_outer{outer_attempt}_inner{code_attempt}_planner_generated_cad_code.py")
-            with open(code_path, "w") as f:
-                f.write(current_code)
-            logger.info(f"[PHASE 2] Code saved to {code_path}")
-            
-            try:
-                solid = execute_cad_code(current_code)
-                logger.info("[PHASE 2] ✅ Solid generated successfully!")
-                break
-            except Exception as e:
-                logger.error(f"[PHASE 2] ❌ Code execution failed: {e}")
-                if code_attempt < MAX_CODE_RETRIES:
-                    logger.info("[PHASE 2] Sending error feedback to Planner for code fix...")
-                    feedback = (
-                        f"CODE EXECUTION ERROR (attempt {code_attempt}):\n"
-                        f"```\n{str(e)}\n```\n"
-                        f"Fix the Python/CadQuery code to resolve this error. "
-                        f"Output the complete corrected code."
-                    )
-                    try:
-                        _, current_code = planner.regenerate_with_feedback(feedback)
-                    except Exception as regen_err:
-                        logger.error(f"[PHASE 2] Regeneration failed: {regen_err}")
-                        break
-                else:
-                    logger.error(f"[PHASE 2] Max code retries ({MAX_CODE_RETRIES}) exhausted.")
-        
-        if solid is None:
-            logger.error("[PHASE 2] Could not generate a valid solid. Pipeline failed.")
-            return
-        
-        # -------------------------------------------------------------------
-        # Phase 3: Export STEP + STL
-        # -------------------------------------------------------------------
-        logger.info("[PHASE 3] Exporting solid to STEP and STL...")
-        step_path = os.path.join(output_dir, f"04_outer{outer_attempt}_exported_model.step")
-        stl_path = os.path.join(output_dir, f"04_outer{outer_attempt}_exported_model.stl")
-        
-        try:
-            export_solid(solid, step_path)
-            export_solid(solid, stl_path)
-            logger.info(f"[PHASE 3] ✅ Exported STEP to {step_path}")
-            logger.info(f"[PHASE 3] ✅ Exported STL to {stl_path}")
-        except Exception as e:
-            logger.error(f"[PHASE 3] Export failed: {e}")
-            return
-        
-        # -------------------------------------------------------------------
-        # Phase 4: Static Checks (deterministic — no LLM)
-        # -------------------------------------------------------------------
-        logger.info("[PHASE 4] Running deterministic static checks...")
-        # Note: mesh_inspector saves 05_outerX_static_inspection_ground_truth.json internally
-        static_results = run_all_inspections(stl_path, expected_dimensions, output_dir, outer_attempt)
-        
-        if has_hard_failures(static_results):
-            failures = static_results.get("hard_failures", [])
-            logger.warning(f"[PHASE 4] ❌ Static checks found {len(failures)} hard failure(s):")
-            for f in failures:
-                logger.warning(f"  → {f}")
-            
-            if outer_attempt < MAX_OUTER_RETRIES:
-                # Short-circuit: route back to planner WITHOUT invoking AI agents
-                logger.info("[PHASE 4] Short-circuiting to Planner (skipping AI inspection)...")
-                feedback = (
-                    f"STATIC CHECK FAILURES (deterministic, ground truth):\n"
-                    + "\n".join(f"- {f}" for f in failures)
-                    + "\n\nThese are mathematically verified failures, not LLM opinions. "
-                    + "Please redesign the part to fix these issues. "
-                    + "Update your Construction Plan and regenerate the code."
-                )
-                try:
-                    full_response, code = planner.regenerate_with_feedback(feedback)
-                    # Save updated plan
-                    plan_path = os.path.join(output_dir, f"02_outer{outer_attempt}_planner_construction_plan.txt")
-                    with open(plan_path, "w") as f_plan:
-                        f_plan.write(full_response)
-                except Exception as e:
-                    logger.error(f"[PHASE 4] Planner regeneration failed: {e}")
-                    return
-                continue  # Next outer iteration
-            else:
-                logger.error("[PHASE 4] Max outer retries exhausted with static failures.")
-                return
-        
-        logger.info("[PHASE 4] ✅ No hard failures (geometry is valid).")
-        
-        # -------------------------------------------------------------------
-        # Phase 4b: DFM Soft Failure Check
-        # -------------------------------------------------------------------
-        if has_soft_failures(static_results):
-            soft_fails = static_results.get("soft_failures", [])
-            logger.warning(f"[PHASE 4b] ⚠ DFM soft failure(s) detected ({len(soft_fails)}):")
-            for sf in soft_fails:
-                logger.warning(f"  → {sf}")
-            
-            if outer_attempt < MAX_OUTER_RETRIES:
-                logger.info("[PHASE 4b] Short-circuiting to Planner (skipping AI — we already know the answer)...")
-                
-                # Build enriched quantitative feedback
-                wt = static_results.get("wall_thickness", {})
-                code_excerpt = _extract_critical_code_section(code, "blade")
-                
-                feedback = (
-                    f"DFM STATIC CHECK FAILURE — Iteration {outer_attempt}/{MAX_OUTER_RETRIES}\n"
-                    f"{'='*60}\n\n"
-                    f"QUANTITATIVE DATA (these are mathematically exact, not AI opinions):\n"
-                    f"  • Measured minimum wall thickness: {wt.get('min_wall_thickness_mm', 'N/A')}mm\n"
-                    f"  • Required minimum wall thickness: 2.0mm\n"
-                    f"  • Deficit: {round(2.0 - (wt.get('min_wall_thickness_mm') or 0), 3)}mm\n"
-                    f"  • Number of thin regions: {wt.get('thin_region_count', 0)}\n"
-                    f"  • Thin region samples: {json.dumps(wt.get('thin_regions_sample', []))}\n\n"
-                    f"ACTION REQUIRED:\n"
-                    f"  Your blade profile half-width is too small.\n"
-                    f"  Multiply your current profile width by: "
-                    f"{round(2.0 / max(wt.get('min_wall_thickness_mm', 1.0), 0.1) * 1.2, 2)}x\n"
-                    f"  (This is target/measured * 1.2 safety margin)\n\n"
-                    f"RELEVANT CODE SECTION TO FIX:\n```python\n{code_excerpt}\n```\n\n"
-                    f"Coordinate system: Z-up, all dimensions in mm, origin at (0,0,0).\n"
-                    f"Update your Construction Plan and regenerate the COMPLETE code."
-                )
-                try:
-                    full_response, code = planner.regenerate_with_feedback(feedback)
-                    plan_path = os.path.join(output_dir, f"02_outer{outer_attempt}_planner_construction_plan.txt")
-                    with open(plan_path, "w") as f_plan:
-                        f_plan.write(full_response)
-                except Exception as e:
-                    logger.error(f"[PHASE 4b] Planner regeneration failed: {e}")
-                    return
-                continue  # Next outer iteration
-            else:
-                logger.error("[PHASE 4b] Max outer retries exhausted with DFM soft failures.")
-                return
-        
-        logger.info("[PHASE 4] ✅ All static AND DFM checks passed!")
-        
-        # -------------------------------------------------------------------
-        # Phase 5: AI Inspection (MeshLib Agent — findings only)
-        # -------------------------------------------------------------------
-        logger.info("[PHASE 5] Running MeshLib AI Inspector Agent...")
-        ai_findings = run_inspection(stl_path, design_brief, output_dir, outer_attempt)
-        
-        # Save AI findings
-        ai_findings_path = os.path.join(output_dir, f"06a_outer{outer_attempt}_ai_inspector_findings.json")
-        with open(ai_findings_path, "w") as f:
-            json.dump(ai_findings, f, indent=4)
-        logger.info(f"[PHASE 5] AI findings saved to {ai_findings_path}")
-        logger.info(f"[PHASE 5] AI Summary: {ai_findings.get('engineer_summary', 'N/A')}")
-        logger.info(f"[PHASE 5] AI Confidence: {ai_findings.get('confidence', 'N/A')}")
-        
-        # -------------------------------------------------------------------
-        # Phase 6: Adversarial Review
-        # -------------------------------------------------------------------
-        logger.info("[PHASE 6] Running Adversarial Reviewer Agent...")
-        logger.info("[PHASE 6] (Reviewer sees: Design Brief + Static Results + AI Findings)")
-        logger.info("[PHASE 6] (Reviewer does NOT see: generated CadQuery code)")
-        
-        reviewer_verdict = run_adversarial_review(
-            design_brief=design_brief,
-            static_results=static_results,
-            ai_findings=ai_findings,
-        )
-        
-        # Save reviewer verdict
-        verdict_path = os.path.join(output_dir, f"07_outer{outer_attempt}_adversarial_reviewer_verdict.json")
-        with open(verdict_path, "w") as f:
-            json.dump(reviewer_verdict, f, indent=4)
-        
-        decision = reviewer_verdict.get("decision", "HALT")
-        confidence = reviewer_verdict.get("confidence", "LOW")
-        reasoning = reviewer_verdict.get("reasoning", "No reasoning provided")
-        
-        logger.info(f"[PHASE 6] Decision: {decision} (Confidence: {confidence})")
-        logger.info(f"[PHASE 6] Reasoning: {reasoning[:300]}...")
-        
-        if reviewer_verdict.get("discrepancies_found"):
-            logger.info("[PHASE 6] Discrepancies found between static and AI results:")
-            for d in reviewer_verdict["discrepancies_found"]:
-                logger.info(f"  ⚠ {d}")
-        
-        # -------------------------------------------------------------------
-        # Route based on reviewer decision
-        # -------------------------------------------------------------------
-        if decision == "APPROVED":
-            logger.info("=" * 70)
-            logger.info("✅ PIPELINE COMPLETE — Design APPROVED by adversarial review!")
-            logger.info("=" * 70)
-            logger.info(f"Final outputs saved in: {output_dir}")
-            return
-        
-        elif decision == "REDESIGN":
-            recommendations = reviewer_verdict.get("recommendations_for_planner", "No specific recommendations.")
-            logger.warning(f"[PHASE 6] 🔄 REDESIGN requested. Recommendations: {recommendations}")
-            
-            if outer_attempt < MAX_OUTER_RETRIES:
-                logger.info(f"[PHASE 6] Feeding reviewer recommendations back to Planner (iteration {outer_attempt+1})...")
-                
-                # Enriched feedback with quantitative data + smart code excerpt
-                wt = static_results.get("wall_thickness", {})
-                code_excerpt = _extract_critical_code_section(code, "blade")
-                
-                feedback = (
-                    f"ADVERSARIAL REVIEW — REDESIGN REQUIRED (Iteration {outer_attempt}/{MAX_OUTER_RETRIES})\n"
-                    f"{'='*60}\n\n"
-                    f"REVIEWER REASONING:\n{reasoning}\n\n"
-                    f"SPECIFIC RECOMMENDATIONS:\n{recommendations}\n\n"
-                    f"QUANTITATIVE STATIC CHECK DATA:\n"
-                    f"  • Wall thickness: min={wt.get('min_wall_thickness_mm', 'N/A')}mm, "
-                    f"thin_regions={wt.get('thin_region_count', 0)}\n"
-                    f"  • Bounding box: {json.dumps(static_results.get('dimensions_check', {}).get('dimensions', {}), indent=2)}\n\n"
-                    f"RELEVANT CODE SECTION TO FIX:\n```python\n{code_excerpt}\n```\n\n"
-                    f"Coordinate system: Z-up, all dimensions in mm, origin at (0,0,0).\n"
-                    f"Update your Construction Plan and regenerate the COMPLETE code."
-                )
-                try:
-                    full_response, code = planner.regenerate_with_feedback(feedback)
-                    plan_path = os.path.join(output_dir, f"02_outer{outer_attempt}_planner_construction_plan_updated.txt")
-                    with open(plan_path, "w") as f_plan:
-                        f_plan.write(full_response)
-                except Exception as e:
-                    logger.error(f"[PHASE 6] Planner regeneration failed: {e}")
-                    return
-                continue  # Next outer iteration
-            else:
-                logger.error("[PHASE 6] Max outer retries exhausted. Design not approved.")
-                return
-        
-        elif decision == "HALT":
-            logger.error("=" * 70)
-            logger.error("🛑 PIPELINE HALTED — Human review required!")
-            logger.error("=" * 70)
-            logger.error(f"Reason: {reasoning}")
-            logger.error(f"Review the outputs in: {output_dir}")
-            return
-        
+    p = prompt
+    # Strip new-format Q&A block (<<<QA_START>>>...<<<QA_END>>>)
+    if "<<<QA_START>>>" in p:
+        idx = p.find("<<<QA_END>>>")
+        if idx != -1:
+            p = p[idx + len("<<<QA_END>>>"):].strip()
         else:
-            logger.error(f"[PHASE 6] Unknown decision: {decision}. Halting.")
-            return
-    
-    # If we exhausted all outer iterations without APPROVED
-    logger.warning("Pipeline completed all outer iterations without achieving APPROVED status.")
-    logger.info(f"All artifacts saved in: {output_dir}")
+            # Malformed: no end marker — strip from start marker to end as fallback
+            p = p[p.find("<<<QA_START>>>") + len("<<<QA_START>>>"):].strip()
+    # Legacy format (PRIOR Q&A CONTEXT from old runs) — strip gracefully
+    if "PRIOR Q&A CONTEXT" in p:
+        parts = p.split("\n\n")
+        clean = [s for s in parts
+                 if not s.startswith("PRIOR Q&A CONTEXT")
+                 and not s.strip().startswith("  Q:") and not s.strip().startswith("  A:")]
+        p = "\n\n".join(clean).strip()
+    # Strip REVISION REQUESTED suffix
+    if "REVISION REQUESTED:" in p:
+        p = p.split("REVISION REQUESTED:")[0].strip()
+    return p or prompt
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
+def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: bool = False,
+                 run_id: str = None, question_handler=None, parent_session_id: str | None = None):
+    # run_id lets a caller (e.g. the API) fix the run-folder name up front; else timestamp.
+    ts = run_id or datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    out = os.path.join(output_base_dir, f"run_{ts}")
+    os.makedirs(out, exist_ok=True)
+    log = get_agent_logger(os.path.join(out, "00_pipeline_execution.log"))
+
+    log.info("=" * 70)
+    log.info("GEOMETRY IR PIPELINE")
+    log.info(f"Output: {out} | interactive={interactive}")
+    log.info(f"Prompt: {prompt[:200]}")
+
+    # Strip iterate-injected context so process/spec/decompose see only the core design.
+    # The planner receives the full prompt (it needs revision + Q&A context).
+    dp = _design_prompt(prompt)
+    if dp != prompt:
+        log.info(f"[DESIGN_PROMPT] stripped iterate context; core prompt: {dp[:120]}")
+
+    profile = load_profile(detect_process(dp))
+    min_wall = profile["min_wall_mm"]
+    process = profile["process_key"]
+    log.info(f"[INIT] Process={profile['full_name']} min_wall={min_wall}mm")
+
+    # Independent intent contract — extracted BEFORE planning; the planner cannot
+    # weaken it. This is what stops "centrifugal impeller" → 7 flat plates.
+    spec = extract_spec(dp)
+    log.info(f"[SPEC] {len(spec)} requirement(s): "
+             + ", ".join(f"{r.get('claim')}:{r.get('target')}" for r in spec))
+    _save(out, "01b_spec.json", json.dumps(spec, indent=2))
+    with open(os.path.join(out, "01_design_brief.json"), "w") as f:
+        json.dump({"prompt": prompt, "process": process, "min_wall_mm": min_wall,
+                   "spec": spec}, f, indent=2)
+
+    # Import agents lazily so the module imports even without ADK/keys present.
+    from agents.planner_agent import IRPlanner
+    from agents.reviewer_agent import run_review
+    try:
+        from agents.vision_agent import run_vision_verification
+    except Exception:
+        run_vision_verification = None
+
+    # ADK session persistence: use SQLite so iterate() can reuse the parent's session.
+    _session_db = os.path.join(output_base_dir, "adk_sessions.db")
+    _session_db_uri = f"sqlite:///{_session_db}"
+    planner = IRPlanner(interactive=interactive, process=process,
+                        question_handler=question_handler,
+                        session_db_uri=_session_db_uri,
+                        reuse_session_id=parent_session_id)
+    planner._log = log  # redirect planner-internal logs to the pipeline file logger
+    # Save session_id so iterate() can reuse it for full context continuity
+    with open(os.path.join(out, "planner_session_id.txt"), "w") as _f:
+        _f.write(planner.session_id)
+    if parent_session_id:
+        log.info(f"[PLANNER] Reusing session {planner.session_id[:8]}... from parent run")
+    _coverage_miss_streak: dict = {}  # req_id → consecutive miss count (doom-loop guard)
+
+    # DECOMPOSITION JUDGMENT (independent of the planner): part vs assembly, and
+    # how to split — only where it's genuinely an assembly of distinct bodies.
+    decision = decompose(dp)  # use core design prompt, not iterate-augmented prompt
+    _save(out, "01c_decomposition.json", json.dumps(decision, indent=2))
+    log.info(f"[DECOMPOSE] mode={decision['mode']} "
+             f"components={[c.get('id') for c in decision.get('components', [])]} :: {decision.get('rationale','')[:140]}")
+    if decision["mode"] == "assembly":
+        return _run_assembly(planner, prompt, spec, decision["components"], out, log, interactive, min_wall)
+
+    # Phase 1: initial IR (monolithic part path).
+    try:
+        text, ir = planner.generate_ir(prompt, spec=spec)
+    except Exception as e:
+        log.error(f"[PLAN] Planner failed (model/API unavailable?): {e}"); _report(out); return out
+    _save(out, "02_outer1_planner_output.txt", text)
+
+    for attempt in range(1, MAX_OUTER + 1):
+        log.info(f"\n{'='*70}\nOUTER {attempt}/{MAX_OUTER}\n{'='*70}")
+
+        # L1: validate (with one self-correct retry inside the loop).
+        if ir is None or not validate_plan(ir)["valid"]:
+            errs = validate_plan(ir)["errors"] if ir else [{"node": "design", "detail": "no IR emitted"}]
+            log.warning(f"[L1] Invalid IR: {errs}")
+            if attempt == MAX_OUTER:
+                log.error("[L1] Out of attempts with invalid IR."); _report(out); return out
+            text, ir = planner.revise_ir(
+                "Your IR failed validation. Fix these node-keyed errors and "
+                f"re-emit the full IR:\n{json.dumps(errs, indent=2)}")
+            _save(out, f"02_outer{attempt}_planner_revision.txt", text)
+            continue
+        _save(out, f"03_outer{attempt}_ir.json", json.dumps(ir, indent=2))
+        log.info("[L1] ✅ IR valid.")
+
+        # Compile (geometry authority).
+        try:
+            solid, prov = compile_design(ir)
+        except Exception as e:
+            log.warning(f"[COMPILE] Failed: {e}")
+            if attempt == MAX_OUTER:
+                log.error("[COMPILE] Out of attempts."); _report(out); return out
+            text, ir = planner.revise_ir(f"Compilation failed: {e}. Fix the offending feature and re-emit the full IR.")
+            continue
+
+        step = export_solid(solid, os.path.join(out, f"04_outer{attempt}_model.step"))
+        stl = export_solid(solid, os.path.join(out, f"04_outer{attempt}_model.stl"))
+        log.info(f"[COMPILE] ✅ solids={len(solid.Solids())} vol={solid.Volume():.0f} → {os.path.basename(step)}/{os.path.basename(stl)}")
+
+        # L2: deterministic intent ground truth.
+        l2 = inspect_solid(ir, solid, prov, min_wall_mm=min_wall)
+        _save(out, f"05_outer{attempt}_solid_inspection.json", json.dumps(l2, indent=2))
+        log.info(f"[L2] valid={l2['valid']} failures={l2['hard_failures']}")
+
+        # L3: render + advisory vision (best-effort).
+        vision = None
+        try:
+            views = render_views(solid, out, prefix=f"09_outer{attempt}_view")
+            if run_vision_verification:
+                vision = run_vision_verification(views, _intent(ir))
+                _save(out, f"06_outer{attempt}_vision_findings.json", json.dumps(vision, indent=2))
+        except Exception as e:
+            log.warning(f"[L3] Vision/render skipped: {e}")
+
+        # L4: MeshLib ONLY for custom/mesh_only nodes (demoted).
+        meshlib = None
+        if any(p.mesh_only for p in prov):
+            try:
+                from agents.meshlib_agent import run_inspection
+                meshlib = run_inspection(stl, {"prompt": prompt, "min_wall_mm": min_wall}, out, attempt)
+            except Exception as e:
+                log.warning(f"[L4] MeshLib skipped: {e}")
+
+        # Reviewer.
+        verdict = run_review(_intent(ir), l2, vision_findings=vision, meshlib_findings=meshlib)
+        _save(out, f"07_outer{attempt}_reviewer_verdict.json", json.dumps(verdict, indent=2))
+        log.info(f"[REVIEW] {verdict['decision']} ({verdict['confidence']}): {verdict['reasoning'][:200]}")
+
+        decision = verdict["decision"]
+        if decision == "APPROVED":
+            # INTENT-COVERAGE GATE: geometry is valid (L2), but does it cover the
+            # immutable user SPEC? (catches the flat-blade-impeller case)
+            cov = check_coverage(spec, l2["checks"], ir)
+            _save(out, f"08_outer{attempt}_spec_coverage.json", json.dumps(cov, indent=2))
+            # Reset streak for any requirement that is now covered
+            covered_ids = {r["id"] for r in cov.get("report", []) if r.get("covered")}
+            for rid in covered_ids:
+                _coverage_miss_streak.pop(rid, None)
+            if not cov["covered"]:
+                log.warning(f"[COVERAGE] ❌ uncovered intent: {[m['id'] for m in cov['missing']]}")
+
+                # Doom-loop safety valve: if the SAME requirement fails twice in a row,
+                # it cannot be satisfied by IR redesign (usually a phantom spec req).
+                # Downgrade it to "preferred" so the run can still converge.
+                still_missing, downgraded = [], []
+                for m in cov["missing"]:
+                    rid = m["id"]
+                    _coverage_miss_streak[rid] = _coverage_miss_streak.get(rid, 0) + 1
+                    if _coverage_miss_streak[rid] >= 2:
+                        log.warning(f"[COVERAGE] Req {rid} stuck ({_coverage_miss_streak[rid]}× in a row) — "
+                                    f"downgrading to preferred: {m.get('description','')[:80]}")
+                        downgraded.append(rid)
+                    else:
+                        still_missing.append(m)
+                if downgraded:
+                    for r in spec:
+                        if r["id"] in downgraded:
+                            r["severity"] = "preferred"
+                    cov["missing"] = still_missing
+                    cov["covered"] = not still_missing
+                    # Re-save with downgraded state for transparency
+                    _save(out, f"08_outer{attempt}_spec_coverage.json", json.dumps(cov, indent=2))
+                    if cov["covered"]:
+                        # Coverage now passes — proceed to approval
+                        pass
+                    else:
+                        if attempt == MAX_OUTER:
+                            log.error("Out of attempts; intent not fully covered."); _report(out); return out
+                        text, ir = planner.revise_ir(coverage_feedback(cov["missing"]))
+                        _save(out, f"02_outer{attempt}_planner_revision.txt", text)
+                        continue
+                else:
+                    # No downgrade yet — still trying
+                    if attempt == MAX_OUTER:
+                        log.error("Out of attempts; intent not fully covered."); _report(out); return out
+                    text, ir = planner.revise_ir(coverage_feedback(cov["missing"]))
+                    _save(out, f"02_outer{attempt}_planner_revision.txt", text)
+                    continue
+
+            if not cov["covered"]:
+                # Should only reach here if we had downgraded but still have missing
+                if attempt == MAX_OUTER:
+                    log.error("Out of attempts; intent not fully covered."); _report(out); return out
+                text, ir = planner.revise_ir(coverage_feedback(cov["missing"]))
+                _save(out, f"02_outer{attempt}_planner_revision.txt", text)
+                continue
+            log.info("=" * 70)
+            log.info("✅ APPROVED — geometry valid AND user-intent spec covered.")
+            _save(out, "APPROVED_ir.json", json.dumps(ir, indent=2))
+            try:
+                from handoff import emit_forgecad_bundle
+                bundle = os.path.join(out, "forgecad_handoff")
+                emit_forgecad_bundle(ir, bundle)
+                log.info(f"[HANDOFF] ForgeCAD bundle written to {bundle}")
+            except Exception as e:
+                log.warning(f"[HANDOFF] bundle emission skipped: {e}")
+            # ACCEPTANCE: APPROVED(harness) ≠ ACCEPTED(user). Gate + registry.
+            summary = (f"Prompt: {prompt[:160]}\nSpec requirements covered: "
+                       f"{len(cov['report'])}/{len(cov['report'])}\nViews: "
+                       f"{out}/09_outer{attempt}_view_*.png")
+            accepted, by = request_acceptance(interactive, summary)
+            record(out, prompt, spec, ir, cov, verdict, accepted, by)
+            log.info(f"[ACCEPT] accepted={accepted} by={by}; registry updated.")
+            log.info(f"Artifacts: {out}")
+            _report(out); return out
+        if decision == "HALT":
+            log.error("🛑 HALT — human review required."); _report(out); return out
+        # REDESIGN
+        rec = verdict["recommendations_for_planner"]
+        log.warning(f"[REVIEW] 🔄 REDESIGN: {rec}")
+        if attempt == MAX_OUTER:
+            log.error("Out of attempts; not approved."); _report(out); return out
+        text, ir = planner.revise_ir(rec)
+        _save(out, f"02_outer{attempt}_planner_revision.txt", text)
+
+    log.warning("Completed all outer iterations without APPROVED.")
+    _report(out); return out
+
+
+def _run_assembly(planner, prompt, spec, components, out, log, interactive, min_wall):
+    """Assembly route — SAME loop as a part, but compile/verify operate on
+    components + interfaces. APPROVED requires every component correct (L2) AND
+    every interface correct (no interference / contact / fit)."""
+    from geometry_ir.assembly import validate_assembly
+    from primitives.assembly import compile_assembly
+    from primitives import export_solid
+    from verification.assembly_inspector import inspect_assembly
+    from verification import render_views
+    from agents.reviewer_agent import run_review  # must be here — run_pipeline's import is local
+
+    try:
+        text, asm = planner.generate_assembly(prompt, spec=spec, components=components)
+    except Exception as e:
+        log.error(f"[PLAN] Assembly planner failed: {e}"); _report(out); return out
+    _save(out, "02_outer1_planner_output.txt", text)
+
+    for attempt in range(1, MAX_OUTER + 1):
+        log.info(f"\n{'='*70}\nOUTER {attempt}/{MAX_OUTER} (assembly)\n{'='*70}")
+        v = validate_assembly(asm) if asm else {"valid": False, "errors": [{"node": "assembly", "detail": "no IR"}]}
+        if not v["valid"]:
+            log.warning(f"[L1] Invalid assembly: {v['errors']}")
+            if attempt == MAX_OUTER:
+                log.error("[L1] Out of attempts."); _report(out); return out
+            text, asm = planner.revise_assembly(f"Fix these assembly errors and re-emit:\n{json.dumps(v['errors'], indent=2)}")
+            continue
+        _save(out, f"03_outer{attempt}_assembly.json", json.dumps(asm, indent=2))
+        log.info("[L1] ✅ assembly valid.")
+
+        try:
+            compound, placed, bb = compile_assembly(asm)
+            export_solid(compound, os.path.join(out, f"04_outer{attempt}_assembly.step"))
+            export_solid(compound, os.path.join(out, f"04_outer{attempt}_assembly.stl"))
+        except Exception as e:
+            log.warning(f"[COMPILE] Assembly failed: {e}")
+            if attempt == MAX_OUTER:
+                _report(out); return out
+            text, asm = planner.revise_assembly(f"Assembly compilation failed: {e}. Fix and re-emit."); continue
+        log.info(f"[COMPILE] ✅ bodies={len(compound.Solids())} bbox z={bb.zmin:.0f}->{bb.zmax:.0f}")
+
+        l2 = inspect_assembly(asm, min_wall_mm=min_wall)
+        _save(out, f"05_outer{attempt}_assembly_inspection.json", json.dumps(l2, indent=2))
+        log.info(f"[L2+L-ASM] valid={l2['valid']} failures={l2['hard_failures'][:4]}")
+        vision = None
+        try:
+            views = render_views(compound, out, prefix=f"09_outer{attempt}_assembly")
+            from agents.vision_agent import run_vision_verification
+            vision = run_vision_verification(views, {"kind": "assembly", "components": components,
+                                                     "mates": asm.get("mates", [])})
+            _save(out, f"06_outer{attempt}_assembly_vision.json", json.dumps(vision, indent=2))
+        except Exception as e:
+            log.warning(f"[L3] vision/render skipped: {e}")
+
+        verdict = run_review({"kind": "assembly", "components": components}, l2, vision_findings=vision)
+        _save(out, f"07_outer{attempt}_reviewer_verdict.json", json.dumps(verdict, indent=2))
+        log.info(f"[REVIEW] {verdict['decision']}: {verdict['reasoning'][:160]}")
+
+        if verdict["decision"] == "APPROVED" and l2["valid"]:
+            # COVERAGE GATE on the assembled whole: flatten components' features,
+            # strip the component prefix from L2 nodes, and check the user SPEC.
+            flat = {"features": [f for c in asm["components"] for f in c["design"]["features"]]}
+            l2_flat = [{**c, "node": c["node"].split(".", 1)[-1]} for c in l2["checks"]]
+            cov = check_coverage(spec, l2_flat, flat)
+            _save(out, f"08_outer{attempt}_spec_coverage.json", json.dumps(cov, indent=2))
+            if not cov["covered"]:
+                log.warning(f"[COVERAGE] ❌ uncovered intent: {[m['id'] for m in cov['missing']]}")
+                if attempt == MAX_OUTER:
+                    log.error("Out of attempts; intent not fully covered."); _report(out); return out
+                text, asm = planner.revise_assembly(coverage_feedback(cov["missing"]))
+                _save(out, f"02_outer{attempt}_planner_revision.txt", text); continue
+            log.info("=" * 70); log.info("✅ APPROVED — components + interfaces verified AND intent covered.")
+            _save(out, "APPROVED_assembly.json", json.dumps(asm, indent=2))
+            from core.registry import request_acceptance, record
+            accepted, by = request_acceptance(interactive,
+                f"Assembly: {len(asm.get('components', []))} components, {len(asm.get('mates', []))} mates.\nViews: {out}/09_outer{attempt}_assembly_*.png")
+            record(out, prompt, spec, asm, cov, verdict, accepted, by)
+            log.info(f"[ACCEPT] accepted={accepted} by={by}."); _report(out); return out
+        if attempt == MAX_OUTER:
+            log.error("Out of attempts; assembly not approved."); _report(out); return out
+        text, asm = planner.revise_assembly(verdict.get("recommendations_for_planner")
+                                            or ("Fix these failed checks: " + "; ".join(l2["hard_failures"][:3])))
+        _save(out, f"02_outer{attempt}_planner_revision.txt", text)
+    _report(out); return out
+
+
+def _report(out_dir: str):
+    try:
+        from reporting import build_report
+        build_report(out_dir)
+    except Exception:
+        pass
+    return out_dir
+
+
+def _save(out_dir: str, name: str, content: str):
+    with open(os.path.join(out_dir, name), "w") as f:
+        f.write(content)
+
 
 if __name__ == "__main__":
-    # Check for interactive flag
-    interactive_mode = "--interactive" in sys.argv or "-i" in sys.argv
-    
-    # Get prompt from args or use default stress test
-    prompt_args = [a for a in sys.argv[1:] if not a.startswith("-")]
-    
-    if prompt_args:
-        test_prompt = " ".join(prompt_args)
-    else:
-        # ULTIMATE STRESS TEST: Centrifugal Compressor Impeller
-        # test_prompt = (
-        #     "Create a complex Centrifugal Compressor Impeller. "
-        #     "1. The main hub is a truncated cone with a base diameter of 100mm (at Z=0), a top diameter of 30mm (at Z=60), and a total height of 60mm. "
-        #     "2. The hub has a central bore hole of 15mm diameter going all the way through the Z axis for the driveshaft. "
-        #     "3. On the surface of the hub, create 7 swept curved aerodynamic blades. "
-        #     "4. Each blade should start at the base (radius 50mm) and curve upwards along the surface of the cone to the top (radius 15mm). "
-        #     "5. The blades should have a uniform thickness of 2mm, an outward protrusion (height off the hub surface) of 15mm at the base, tapering to 5mm at the top. "
-        #     "6. The blades should curve/twist around the Z axis by roughly 60 degrees from bottom to top to create the aerodynamic impeller shape. "
-        #     "7. Ensure the final object is a single unified solid, assigned to a variable named 'result_solid'. "
-        #     "DO NOT use hallucinated Selectors, stick to standard CadQuery operations like workplanes, extrude, sweep, or loft."
-        # )
-
-        test_prompt = (
-            "Make a home AC unit, showing both pieces on different sides of the wall (inside and outside). The external piece should have a fan positioned on its external face vertically. Implement whatever features/methods you are missing in the script itself for your convenience. Use the simpler primitives when unsure."
-        )
-
-    
-    run_pipeline(test_prompt, interactive=interactive_mode)
+    interactive = "--interactive" in sys.argv or "-i" in sys.argv
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    prompt = " ".join(args) if args else (
+        "Create a centrifugal compressor impeller: a truncated cone hub, base "
+        "diameter 100mm, top diameter 30mm, height 60mm; a 15mm through bore "
+        "along the axis; and 7 evenly-spaced radial blades 2mm thick.")
+    run_pipeline(prompt, interactive=interactive)

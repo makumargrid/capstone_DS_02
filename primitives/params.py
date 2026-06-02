@@ -1,0 +1,94 @@
+"""
+primitives/params.py — typed parameter schema for every primitive (Pydantic v2).
+
+WHAT: one strict model per primitive `type`; PARAM_MODELS maps type→model.
+      Decoupled from CadQuery so validation stays import-light.
+CALLED BY: geometry_ir/validate.py (L1 param checks), primitives/builders.py
+           (each builder takes its model), primitives/registry.py, tools/planner_tools.py.
+CALLS: pydantic only.
+
+Convention: `at` = [x,y,z] base-center anchor (default origin). Lengths in mm.
+ADD A PRIMITIVE: add its <Name>Params here + an entry in PARAM_MODELS, then a
+builder in builders.py and registry entries — and a builder unit test.
+"""
+from __future__ import annotations
+from typing import Optional
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class _Base(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    at: list[float] = Field(default=[0.0, 0.0, 0.0], min_length=3, max_length=3)
+
+
+class CylinderParams(_Base):
+    radius: float = Field(gt=0)
+    height: float = Field(gt=0)
+
+
+class ConeParams(_Base):
+    """Truncated cone / frustum. r_top == 0 gives a sharp cone."""
+    r_base: float = Field(gt=0)
+    r_top: float = Field(ge=0)
+    height: float = Field(gt=0)
+
+
+class BoxParams(_Base):
+    """`at` is the base-center; box is centered in X/Y and rises +Z."""
+    length: float = Field(gt=0)   # X
+    width: float = Field(gt=0)    # Y
+    height: float = Field(gt=0)   # Z
+
+
+class HoleParams(_Base):
+    """A cut cylinder. `depth` None = through-all (resolved by compiler)."""
+    diameter: float = Field(gt=0)
+    depth: Optional[float] = Field(default=None, gt=0)
+
+
+class SphereParams(_Base):
+    """Sphere centered at `at`."""
+    radius: float = Field(gt=0)
+
+
+class TubeParams(_Base):
+    """Hollow cylinder (pipe): outer/inner radius, height. inner < outer."""
+    outer_radius: float = Field(gt=0)
+    inner_radius: float = Field(gt=0)
+    height: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _check_radii(self):
+        if self.inner_radius >= self.outer_radius:
+            raise ValueError("inner_radius must be < outer_radius")
+        return self
+
+
+class BladeParams(_Base):
+    """Twisted lofted protrusion (impeller/fan blade): rect `width`×`chord`
+    lofted over `height`, rotating `twist_deg` base→top, optionally leaning
+    radially inward by `lean_deg` (tracks a tapered hub surface).
+
+    lean_deg = 0 (default) → vertical blade (existing behaviour, no geometry change).
+    lean_deg > 0 → blade center shifts radially inward by tan(lean_deg)×z at each
+                    cross-section, matching a frustum hub taper to reduce union artifacts.
+    For a frustum hub: lean_deg = degrees(arctan((r_base - r_top) / height)).
+    """
+    width: float = Field(gt=0)
+    chord: float = Field(gt=0)
+    height: float = Field(gt=0)
+    twist_deg: float = 0.0
+    lean_deg: float = 0.0   # radially-inward lean per unit height (hub-tracking)
+
+
+# type → param model (the validatable primitive vocabulary).
+PARAM_MODELS: dict[str, type[BaseModel]] = {
+    "cylinder": CylinderParams,
+    "cone": ConeParams,
+    "frustum": ConeParams,
+    "box": BoxParams,
+    "hole": HoleParams,
+    "sphere": SphereParams,
+    "tube": TubeParams,
+    "blade": BladeParams,
+}

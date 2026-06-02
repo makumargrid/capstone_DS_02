@@ -1,0 +1,55 @@
+{
+    "base_stats": {
+        "is_watertight": true,
+        "volume_mm3": 273933.91
+    },
+    "degenerate_faces": 0,
+    "self_intersections": {
+        "has_self_intersections": false,
+        "intersecting_face_count": 0
+    },
+    "normals_consistency": {
+        "normals_consistent": true,
+        "flipped_regions": 0
+    },
+    "wall_thickness": {
+        "raw_min_wall_thickness_mm": 8.63,
+        "min_wall_thickness_mm": 8.63,
+        "p5_wall_thickness_mm": 9.029,
+        "median_wall_thickness_mm": 22.377,
+        "thin_region_count": 0,
+        "artifact_count": 0,
+        "total_samples": 1000,
+        "passes_minimum": true,
+        "thin_regions_sample": []
+    },
+    "dimensions_check": {
+        "dimensions": {
+            "x_mm": {
+                "expected": 130.0,
+                "measured": 121.197,
+                "delta_mm": 8.803,
+                "tolerance_mm": 15,
+                "passed": true
+            },
+            "y_mm": {
+                "expected": 130.0,
+                "measured": 124.314,
+                "delta_mm": 5.686,
+                "tolerance_mm": 15,
+                "passed": true
+            },
+            "z_mm": {
+                "expected": 72.0,
+                "measured": 68.0,
+                "delta_mm": 4.0,
+                "tolerance_mm": 15,
+                "passed": true
+            }
+        },
+        "all_dimensions_pass": true
+    },
+    "overall_valid": true,
+    "hard_failures": [],
+    "soft_failures": []
+}

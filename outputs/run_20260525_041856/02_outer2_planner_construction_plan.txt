@@ -1,0 +1,130 @@
+### CONSTRUCTION PLAN:
+
+The feedback indicated two strict failures:
+1. **Self-intersecting faces (56)**: This topological error almost exclusively occurs when applying chamfers/fillets to complex boolean boundaries or when booleans perfectly share coplanar faces (e.g., merging two blocks that start/end on the exact same coordinate plane).
+2. **Dimension X mismatch**: The model must span exactly 850.0mm in the X direction.
+
+To guarantee success and address both constraints deterministically, I will abandon all `.chamfer()` operations and use carefully drafted 2D cross-sections extruded into 3D. Every single component will intentionally overlap deeply (cross-intersect) to avoid shared face boundaries. The total bounds will be explicitly coded to exactly `X=850, Y=800, Z=650`.
+
+1. **The Wall (Context)**
+   - Represents the core and defines the exact Y and Z bounding limits.
+   - Size: 200mm (X) × 800mm (Y) × 650mm (Z).
+   - Bounds covered: `X:[-100, 100]`, `Y:[-400, 400]`, `Z:[0, 650]`.
+
+2. **Indoor Unit (Extruded Triangle for safe 45° DFM)**
+   - Instead of a box with a chamfer, I will sketch a 2D triangle on the XZ plane and extrude it in Y.
+   - Profile: Starts deeply inside the wall at X=-50. Slopes perfectly upwards at exactly 45 degrees to X=-425.
+   - Points: `(-50, 200)`, `(-425, 600)`, `(-50, 600)`.
+   - Bounds covered: Reaches exact global limit `X=-425`.
+
+3. **Outdoor Unit Body**
+   - A box deeply embedded into the wall, extending outward.
+   - Size: 375mm (X) × 700mm (Y) × 500mm (Z). Centered at X=237.5, Y=0.
+   - Bounds covered: spans `X:[50, 425]`, exactly hitting the global limit `X=425`.
+   - Total X-span of the entire model: `X=425` (max) - `X=-425` (min) = exactly 850mm.
+
+4. **Fan Assembly (External +X face, DFM Optimized)**
+   - **Cutout**: A 4-sided diamond cut 75mm deep. In standard CadQuery, a 4-sided polygon on the YZ plane points precisely up/down, creating a perfectly printable 45-degree ceiling.
+   - **Horizontal Fin**: Hand-sketched on the XZ plane to feature a 45-degree sloped underbelly (`X=340` to `X=380`, `Z=200` to `Z=240`), avoiding the need for chamfer operations that caused topology errors.
+   - **Grille Bars**: Modeled slightly shorter and slightly sub-flush to the outer face. Spanning `Z=40` to `Z=460` and `X=404` to `X=424`. This guarantees they embed completely *inside* the main solid, totally eliminating coplanar face merging issues.
+
+5. **Connecting Pipe**
+   - A diamond-profiled extrusion traversing `X=-150` to `X=150` at `Z=400`, ensuring the entire assembly acts as a verified, single watertight manifold.
+
+### CADQUERY CODE:
+
+```python
+import cadquery as cq
+
+# 1. THE WALL (Exactly hits Y=800 and Z=650 limits)
+wall = (
+    cq.Workplane("XY")
+    .box(200, 800, 650, centered=(True, True, False))
+)
+
+# 2. INDOOR UNIT (Extruded wedge perfectly reaching exactly X=-425)
+indoor = (
+    cq.Workplane("XZ")
+    .polyline([(-50, 200), (-425, 600), (-50, 600)])
+    .close()
+    .extrude(300, both=True) # Extrudes symmetrically to Y [-300, 300]
+)
+
+# 3. OUTDOOR UNIT BODY (Perfectly reaching exactly X=425)
+outdoor = (
+    cq.Workplane("XY")
+    .center(237.5, 0)
+    .box(375, 700, 500, centered=(True, True, False)) # X spans [50, 425]
+)
+
+# Cutout: Diamond hole avoids flat ceilings for robust FDM
+cutout = (
+    cq.Workplane("YZ")
+    .workplane(offset=425)
+    .center(0, 250)
+    .polygon(4, 400) # 4 sides = Diamond (radius 200)
+    .extrude(-75)    # Cuts deep back to X=350
+)
+outdoor = outdoor.cut(cutout)
+
+# 4. FAN ASSEMBLY
+# Pyramidal Hub
+hub = (
+    cq.Workplane("YZ")
+    .workplane(offset=349) # Embed 1mm deep into back face to avoid coplanar errors
+    .center(0, 250)
+    .polygon(4, 120)
+    .workplane(offset=51)  # Reaches to X=400
+    .polygon(4, 2)
+    .loft()
+)
+
+# Horizontal Fin (Sketched directly with a 45-degree slope underneath)
+h_fin = (
+    cq.Workplane("XZ")
+    .polyline([(340, 200), (380, 240), (380, 260), (340, 260)])
+    .close()
+    .extrude(190, both=True) # Y spans [-190, 190]
+)
+
+# Vertical Fin (Simple straight tower structure)
+v_fin = (
+    cq.Workplane("XZ")
+    .center(360, 250)
+    .rect(40, 400)          # X width 40, Z height 400
+    .extrude(10, both=True) # Y thickness 20
+)
+
+# Grille Bars (Sub-flush bounds to categorically prevent face self-intersections)
+bars = None
+for y_pos in [-120, -60, 0, 60, 120]:
+    bar = (
+        cq.Workplane("XZ")
+        .center(414, 250)       # Sub-flush front face (X=424 instead of 425)
+        .rect(20, 420)          # Avoids sharing Z=0 or Z=500 planes (Z=[40, 460])
+        .extrude(5, both=True)  # Y thickness 10
+    )
+    # Offset each bar into its correct Y position by translating
+    bar = bar.translate((0, y_pos, 0))
+    
+    if bars is None:
+        bars = bar
+    else:
+        bars = bars.union(bar)
+
+# Merge all outdoor components safely
+outdoor = outdoor.union(hub).union(h_fin).union(v_fin).union(bars)
+
+# 5. CONNECTING PIPE
+# Central diamond pipe bridges components natively
+pipe = (
+    cq.Workplane("YZ")
+    .workplane(offset=-150)
+    .center(0, 400)
+    .polygon(4, 100) # Diamond to avoid overhead overhang
+    .extrude(300)    # Runs through entire wall from X=-150 to X=150
+)
+
+# 6. FINAL ASSEMBLY
+result_solid = wall.union(indoor).union(outdoor).union(pipe)
+```

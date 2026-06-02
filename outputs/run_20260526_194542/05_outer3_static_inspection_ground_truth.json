@@ -1,0 +1,87 @@
+{
+    "base_stats": {
+        "is_watertight": true,
+        "volume_mm3": 525.43
+    },
+    "degenerate_faces": 0,
+    "self_intersections": {
+        "has_self_intersections": false,
+        "intersecting_face_count": 0
+    },
+    "normals_consistency": {
+        "normals_consistent": true,
+        "flipped_regions": 0
+    },
+    "wall_thickness": {
+        "raw_min_wall_thickness_mm": 0.107,
+        "min_wall_thickness_mm": 0.323,
+        "p5_wall_thickness_mm": 0.604,
+        "median_wall_thickness_mm": 2.71,
+        "thin_region_count": 139,
+        "artifact_count": 14,
+        "total_samples": 566,
+        "passes_minimum": false,
+        "thin_regions_sample": [
+            {
+                "face_id": 0,
+                "thickness_mm": 0.775,
+                "face_center_z_mm": 62.7
+            },
+            {
+                "face_id": 3,
+                "thickness_mm": 1.524,
+                "face_center_z_mm": 62.9
+            },
+            {
+                "face_id": 20,
+                "thickness_mm": 0.692,
+                "face_center_z_mm": 62.9
+            },
+            {
+                "face_id": 21,
+                "thickness_mm": 0.343,
+                "face_center_z_mm": 62.7
+            },
+            {
+                "face_id": 22,
+                "thickness_mm": 1.715,
+                "face_center_z_mm": 63.5
+            }
+        ]
+    },
+    "dimensions_check": {
+        "dimensions": {
+            "x_mm": {
+                "expected": 130.0,
+                "measured": 38.4,
+                "delta_mm": 91.6,
+                "tolerance_mm": 15,
+                "passed": false
+            },
+            "y_mm": {
+                "expected": 130.0,
+                "measured": 38.087,
+                "delta_mm": 91.913,
+                "tolerance_mm": 15,
+                "passed": false
+            },
+            "z_mm": {
+                "expected": 72.0,
+                "measured": 4.819,
+                "delta_mm": 67.181,
+                "tolerance_mm": 15,
+                "passed": false
+            }
+        },
+        "all_dimensions_pass": false
+    },
+    "overall_valid": false,
+    "hard_failures": [
+        "Dimension x_mm: expected 130.0mm, measured 38.4mm (delta 91.6mm)",
+        "Dimension y_mm: expected 130.0mm, measured 38.087mm (delta 91.913mm)",
+        "Dimension z_mm: expected 72.0mm, measured 4.819mm (delta 67.181mm)"
+    ],
+    "soft_failures": [
+        "DFM_WALL_THICKNESS: Structural min=0.323mm (required: 2.0mm, deficit: 1.677mm). P5=0.604mm, median=2.71mm. Raw min=0.107mm (artifacts filtered: 14). 139 structural thin region(s). Samples: [face 0=0.775mm (Z=62.7mm), face 3=1.524mm (Z=62.9mm), face 20=0.692mm (Z=62.9mm), face 21=0.343mm (Z=62.7mm), face 22=1.715mm (Z=63.5mm)]"
+    ]
+}

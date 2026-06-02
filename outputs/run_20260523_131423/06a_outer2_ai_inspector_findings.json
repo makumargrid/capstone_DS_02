@@ -1,0 +1,55 @@
+{
+    "checks": [
+        {
+            "check_name": "Central Bore Diameter",
+            "measured": 41.74,
+            "expected": 15.0,
+            "tolerance": 1.0,
+            "passed": false,
+            "unit": "mm",
+            "reason": "Minimum radial distance to Z-axis matches the outer hub surface. No internal bore hole exists."
+        },
+        {
+            "check_name": "Top Outer Diameter (Hub + Blades)",
+            "measured": 40.09,
+            "expected": 40.0,
+            "tolerance": 2.0,
+            "passed": true,
+            "unit": "mm",
+            "reason": "Maximum diameter at Z=60 exactly matches 30mm hub + 2*5mm blade protrusion."
+        },
+        {
+            "check_name": "Base Outer Diameter (Hub + Blades)",
+            "measured": 130.05,
+            "expected": 130.0,
+            "tolerance": 2.0,
+            "passed": true,
+            "unit": "mm",
+            "reason": "Maximum diameter at Z=0 exactly matches 100mm hub + 2*15mm blade protrusion."
+        },
+        {
+            "check_name": "Blade Count",
+            "measured": "Undetectable",
+            "expected": 7,
+            "tolerance": null,
+            "passed": false,
+            "unit": "count",
+            "reason": "Only 28 vertices present in a 2mm cross-section at Z=30. The extreme low-poly mesh prevents reliable geometric peak detection for counting."
+        },
+        {
+            "check_name": "Minimum Wall Thickness",
+            "measured": "> 30.0",
+            "expected": 2.0,
+            "tolerance": null,
+            "passed": true,
+            "unit": "mm",
+            "reason": "Ray-casting inward from face centers hits the opposite side of the solid geometry. Model meets minimum thickness but lacks internal bore."
+        }
+    ],
+    "anomalies": [
+        "The 15mm central bore hole is completely absent; the impeller is a fully solid block inside.",
+        "The geometry dimensions are mathematically spot-on (e.g., exact hub and blade tip radii at Z=30), but an extremely low polygon count (1978 total vertices) severely degrades the shape of the 7 swept blades into sparse, jagged facets."
+    ],
+    "engineer_summary": "The model demonstrates incredibly precise outer dimensional generation, with the hub and blade tip profiles perfectly matching the expected dimensions at the base, midpoint, and top. However, it fails critically on internal features: the 15mm through-bore is completely missing, leaving the object entirely solid. Additionally, due to an unusually low polygon count, the complex swept curved blades are represented by very few vertices, rendering their visual quality jagged and making it impossible to geometrically verify exactly 7 blades.",
+    "confidence": "HIGH"
+}

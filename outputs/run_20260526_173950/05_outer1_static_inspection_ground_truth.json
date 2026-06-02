@@ -1,0 +1,81 @@
+{
+    "base_stats": {
+        "is_watertight": true,
+        "volume_mm3": 221499.44
+    },
+    "degenerate_faces": 0,
+    "self_intersections": {
+        "has_self_intersections": false,
+        "intersecting_face_count": 0
+    },
+    "normals_consistency": {
+        "normals_consistent": true,
+        "flipped_regions": 0
+    },
+    "wall_thickness": {
+        "raw_min_wall_thickness_mm": 0.705,
+        "min_wall_thickness_mm": 0.705,
+        "p5_wall_thickness_mm": 5.668,
+        "median_wall_thickness_mm": 26.125,
+        "thin_region_count": 21,
+        "artifact_count": 0,
+        "total_samples": 1000,
+        "passes_minimum": true,
+        "thin_regions_sample": [
+            {
+                "face_id": 260,
+                "thickness_mm": 0.705,
+                "face_center_z_mm": 60.0
+            },
+            {
+                "face_id": 264,
+                "thickness_mm": 1.564,
+                "face_center_z_mm": 0.8
+            },
+            {
+                "face_id": 265,
+                "thickness_mm": 1.551,
+                "face_center_z_mm": 0.8
+            },
+            {
+                "face_id": 266,
+                "thickness_mm": 1.454,
+                "face_center_z_mm": 0.8
+            },
+            {
+                "face_id": 271,
+                "thickness_mm": 1.355,
+                "face_center_z_mm": 0.8
+            }
+        ]
+    },
+    "dimensions_check": {
+        "dimensions": {
+            "x_mm": {
+                "expected": 130.0,
+                "measured": 124.359,
+                "delta_mm": 5.641,
+                "tolerance_mm": 15.0,
+                "passed": true
+            },
+            "y_mm": {
+                "expected": 130.0,
+                "measured": 127.557,
+                "delta_mm": 2.443,
+                "tolerance_mm": 15.0,
+                "passed": true
+            },
+            "z_mm": {
+                "expected": 60.0,
+                "measured": 60.0,
+                "delta_mm": 0.0,
+                "tolerance_mm": 15.0,
+                "passed": true
+            }
+        },
+        "all_dimensions_pass": true
+    },
+    "overall_valid": true,
+    "hard_failures": [],
+    "soft_failures": []
+}

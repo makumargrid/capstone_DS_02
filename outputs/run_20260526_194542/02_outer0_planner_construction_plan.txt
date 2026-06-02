@@ -1,0 +1,258 @@
+Perfect. I'll use engineering judgment: blades protrude **normal to the cone surface** (aerodynamically correct), twist **counter-clockwise** when viewed from above (standard compressor rotation direction).
+
+---
+
+## CONSTRUCTION PLAN:
+
+### Part Decomposition
+
+**Sub-component 1: Hub (Truncated Cone)**
+- Operation: `revolve` a trapezoidal profile around Z-axis
+- Base radius: 50mm at Z=0, top radius: 15mm at Z=60mm
+- Wall: solid frustum (not hollow), height=60mm
+- Origin: centered at XY origin
+
+**Sub-component 2: Central Bore**
+- Operation: `cut` a cylinder of diameter 15mm (radius 7.5mm), height 62mm, centered at Z-axis
+- Cuts all the way through (+Z and -Z clearance)
+
+**Sub-component 3: 7 Aerodynamic Blades (the hard part)**
+
+Strategy: Build one blade using a **loft** between a series of trapezoidal cross-sections positioned along the cone surface path, then **rotate** it 7 times (every 360°/7 ≈ 51.43°).
+
+Each blade cross-section:
+- Sits on the cone surface at a given Z height
+- At that Z, cone radius = 50 - (50-15)*(Z/60) = 50 - 35*(Z/60)
+- Blade protrusion height off cone surface: linearly tapers from 15mm (Z=0) to 5mm (Z=60)
+- Blade thickness: uniform 2mm
+- The blade twists 60° total over Z=0 to Z=60 (CCW)
+- The cone surface slope angle from vertical: atan((50-15)/60) = atan(35/60) ≈ 30.26° from vertical (59.74° from horizontal)
+
+**Blade geometry approach:**
+- Define N=20 cross-section planes along the cone surface (from Z=0 to Z=60)
+- At each station z_i:
+  - Cone radius: r_i = 50 - 35*(z_i/60)
+  - Twist angle: θ_i = base_angle + 60°*(z_i/60) (CCW)
+  - Blade center point on cone surface: (r_i·cos θ_i, r_i·sin θ_i, z_i)
+  - Protrusion h_i = 15 - 10*(z_i/60) (15mm → 5mm)
+  - Cone surface normal direction (outward + upward component)
+  - Blade rectangle: 2mm thick (tangential) × h_i (normal to cone surface)
+
+- Use a **loft** through the rectangular sections to create one blade
+- **Union** 7 rotated copies into the hub
+
+**Blade cross-section rectangle (per station):**
+- Tangential unit vector: t̂ = (-sin θ_i, cos θ_i, 0) — gives the 2mm thickness direction
+- Cone outward normal: n̂ = (cos α · cos θ_i, cos α · sin θ_i, sin α) where α = cone half-angle from horizontal ≈ 30.26°
+  - Actually cone surface normal: nR = sin(cone_slope), nZ = cos(cone_slope) where cone_slope = atan(dR/dZ) away from axis
+  - dR/dZ = -35/60 (cone narrows going up), outward normal to surface: nR component = 60/√(60²+35²), nZ component = 35/√(60²+35²)
+  
+- Rectangle corners at station i:
+  - P1 = center - (t̂·1mm) + (n̂·0) [on cone surface, -tangential]
+  - P2 = center + (t̂·1mm) + (n̂·0) [on cone surface, +tangential]  
+  - P3 = center + (t̂·1mm) + (n̂·h_i) [tip, +tangential]
+  - P4 = center - (t̂·1mm) + (n̂·h_i) [tip, -tangential]
+
+**Assembly Order:**
+1. Build hub frustum (revolve)
+2. Cut central bore
+3. Build blade 0 via loft of wire sections
+4. Union 7 rotated blades onto hub
+5. Center on XY origin
+6. Assign to `result_solid`
+
+**Risk Assessment:**
+- Loft through 20 wire sections: CadQuery can handle this but wires must be consistently ordered and co-directional
+- Feature-to-curved-surface junction: add fillets at blade roots ≥ 1.5mm after union
+- Global fillet may fail on complex geometry — use targeted edge selection or skip if OCCT fails
+- Self-intersection: embed blade base 1mm below cone surface (offset inward) to ensure watertight boolean
+
+---
+
+```python
+import cadquery as cq
+import math
+
+# ── Parameters ────────────────────────────────────────────────────────────────
+HUB_R_BASE   = 50.0      # base radius at Z=0
+HUB_R_TOP    = 15.0      # top radius at Z=60
+HUB_H        = 60.0      # hub height
+BORE_R       = 7.5       # central bore radius (15mm dia)
+NUM_BLADES   = 7
+BLADE_T      = 2.0       # blade thickness (mm) — meets 2mm DFM minimum
+BLADE_H_BOT  = 15.0      # blade protrusion at base
+BLADE_H_TOP  = 5.0       # blade protrusion at top
+TWIST_DEG    = 60.0      # total CCW twist from Z=0 to Z=60
+N_SECTIONS   = 22        # loft cross-section count (more = smoother)
+
+# Cone geometry
+# Cone slope: as Z increases, radius decreases
+# dR/dZ = (HUB_R_TOP - HUB_R_BASE) / HUB_H = (15-50)/60 = -35/60
+dR_dZ = (HUB_R_TOP - HUB_R_BASE) / HUB_H   # = -7/12
+
+# Outward surface normal to the cone (pointing away from axis and upward)
+# Cone surface: F(r,z) = r - (HUB_R_BASE + dR_dZ*z) = 0
+# Gradient: (1, 0, -dR_dZ) in cylindrical → in 3D outward normal has:
+#   radial component: 1 / sqrt(1 + dR_dZ^2)  (positive = outward)
+#   Z component    : -dR_dZ / sqrt(1 + dR_dZ^2)  (positive since dR_dZ < 0)
+mag = math.sqrt(1.0 + dR_dZ**2)
+nR_hat = 1.0 / mag          # radial component of unit normal
+nZ_hat = -dR_dZ / mag       # Z component of unit normal (positive = upward)
+
+# ── Step 1: Hub frustum ───────────────────────────────────────────────────────
+hub = (
+    cq.Workplane("XY")
+    .circle(HUB_R_BASE)
+    .workplane(offset=HUB_H)
+    .circle(HUB_R_TOP)
+    .loft()
+)
+
+# ── Step 2: Central bore ──────────────────────────────────────────────────────
+bore_cyl = (
+    cq.Workplane("XY")
+    .workplane(offset=-1.0)
+    .circle(BORE_R)
+    .extrude(HUB_H + 2.0)
+)
+hub = hub.cut(bore_cyl)
+
+# ── Step 3: Build one blade via loft ─────────────────────────────────────────
+# We build N_SECTIONS cross-sections (closed wire rectangles) along the cone surface.
+# The blade starts embedded 0.5mm inside the cone surface to ensure watertight union.
+
+def blade_section_wire(z_frac):
+    """
+    Return a CadQuery Wire (closed rectangle) for a blade cross-section
+    at fractional height z_frac in [0,1].
+    """
+    z_val  = z_frac * HUB_H
+    # Cone radius at this height
+    r_cone = HUB_R_BASE + dR_dZ * z_val
+
+    # Twist angle for blade 0 (base angle = 0)
+    theta  = math.radians(TWIST_DEG * z_frac)   # CCW twist
+
+    # Centre point on cone surface
+    cx = r_cone * math.cos(theta)
+    cy = r_cone * math.sin(theta)
+    cz = z_val
+
+    # Tangential unit vector (CCW tangent in XY plane, 0 z-component)
+    tx = -math.sin(theta)
+    ty =  math.cos(theta)
+    tz =  0.0
+
+    # Outward surface normal
+    nx = nR_hat * math.cos(theta)
+    ny = nR_hat * math.sin(theta)
+    nz = nZ_hat
+
+    # Blade protrusion height at this section (linear taper)
+    h_blade = BLADE_H_BOT + (BLADE_H_TOP - BLADE_H_BOT) * z_frac
+
+    # Embed base 0.8mm inside cone for watertight boolean
+    embed = 0.8
+
+    half_t = BLADE_T / 2.0  # 1.0mm
+
+    # Four corners of the rectangular cross-section
+    # Base edge (inside cone surface, offset by -embed along normal)
+    p0 = (cx - half_t*tx - embed*nx,
+          cy - half_t*ty - embed*ny,
+          cz - embed*nz)
+    p1 = (cx + half_t*tx - embed*nx,
+          cy + half_t*ty - embed*ny,
+          cz - embed*nz)
+    # Tip edge (protrude h_blade above cone surface)
+    p2 = (cx + half_t*tx + h_blade*nx,
+          cy + half_t*ty + h_blade*ny,
+          cz + h_blade*nz)
+    p3 = (cx - half_t*tx + h_blade*nx,
+          cy - half_t*ty + h_blade*ny,
+          cz + h_blade*nz)
+
+    # Build wire from points
+    pts = [
+        cq.Vector(*p0),
+        cq.Vector(*p1),
+        cq.Vector(*p2),
+        cq.Vector(*p3),
+        cq.Vector(*p0),   # close
+    ]
+    edges = []
+    for i in range(len(pts) - 1):
+        edges.append(cq.Edge.makeLine(pts[i], pts[i+1]))
+
+    wire = cq.Wire.assembleEdges(edges)
+    return wire
+
+# Build list of wires for loft
+z_fractions = [i / (N_SECTIONS - 1) for i in range(N_SECTIONS)]
+blade_wires  = [blade_section_wire(zf) for zf in z_fractions]
+
+# Loft the blade
+blade_solid = cq.Solid.makeLoft(blade_wires, ruled=False)
+
+# ── Step 4: Union 7 rotated blades ───────────────────────────────────────────
+blade_angle_step = 360.0 / NUM_BLADES  # ≈ 51.43°
+
+result_solid = hub
+
+for i in range(NUM_BLADES):
+    angle_deg = i * blade_angle_step
+    # Rotate blade_solid around Z axis
+    rotated_blade = blade_solid.rotate(
+        cq.Vector(0, 0, 0),
+        cq.Vector(0, 0, 1),
+        angle_deg
+    )
+    # Convert to Workplane-compatible and union
+    result_solid = result_solid.union(
+        cq.Workplane("XY").add(rotated_blade)
+    )
+
+# ── Step 5: Add root fillets for DFM compliance ───────────────────────────────
+# Attempt a moderate fillet on all edges — catches blade-to-cone junctions
+try:
+    result_solid = result_solid.edges(
+        cq.selectors.NearestToPointSelector((HUB_R_BASE * 0.7, 0, 5))
+    ).fillet(0.8)
+except Exception:
+    pass  # Skip fillet if topology is too complex — blades already embedded
+
+# ── Step 6: Centre on XY origin ───────────────────────────────────────────────
+bb = result_solid.val().BoundingBox()
+result_solid = result_solid.translate(
+    (-bb.center.x, -bb.center.y, 0)
+)
+
+print("Centrifugal Compressor Impeller built successfully.")
+print(f"Bounding Box X: {bb.xmin:.1f} → {bb.xmax:.1f} mm")
+print(f"Bounding Box Y: {bb.ymin:.1f} → {bb.ymax:.1f} mm")
+print(f"Bounding Box Z: {bb.zmin:.1f} → {bb.zmax:.1f} mm")
+```
+
+---
+
+### Design Summary
+
+| Feature | Value |
+|---|---|
+| Hub base diameter | 100 mm (at Z=0) |
+| Hub top diameter | 30 mm (at Z=60) |
+| Hub height | 60 mm |
+| Central bore | Ø15 mm through Z-axis |
+| Number of blades | 7 |
+| Blade thickness | 2.0 mm (DFM minimum) |
+| Blade protrusion | 15 mm (base) → 5 mm (top) |
+| Blade twist | 60° CCW from Z=0 to Z=60 |
+| Loft sections per blade | 22 cross-sections |
+| Blade root embedding | 0.8 mm into cone (watertight) |
+| Surface normal calc | Exact cone gradient method |
+
+### Key Engineering Decisions
+- **Normal-to-surface protrusion**: Blade height direction uses the exact outward cone surface normal (radial + Z components), giving true aerodynamic blade geometry
+- **Root embedding**: Blades extend 0.8mm into the cone body before unioning, preventing non-manifold seams
+- **22 loft sections**: Dense enough to capture the 60° twist and taper smoothly without kinks
+- **Consistent wire winding**: All 22 rectangular wire sections use identical corner ordering (P0→P1→P2→P3→close) to prevent loft self-intersection

@@ -1,0 +1,162 @@
+## Analysis of Failures
+
+The measured dimensions show the blades are not protruding far enough outward. Let me diagnose:
+
+- **Expected X: 160mm** → means total width = 160mm → radius = 80mm from center
+- **Hub base radius = 50mm**, blade protrusion at base = 15mm off the cone surface normal
+- The cone normal has components both radially outward AND upward, so the actual XY projection of blade tip is: `r_cone + blade_h * norm_r_unit = 50 + 15 * (1/tang_len)`
+- `tang_len = sqrt(dRdZ² + 1) = sqrt((35/60)² + 1) = sqrt(0.3403 + 1) = sqrt(1.3403) ≈ 1.158`
+- `norm_r_unit = 1/1.158 ≈ 0.863`
+- XY reach at base: `50 + 15 * 0.863 ≈ 50 + 12.9 = 62.9mm` → diameter ≈ 125.8mm (still short of 160mm)
+
+**The issue**: The blade protrusion (15mm at base) is insufficient to reach 80mm radius. The blades need to extend **radially outward** more aggressively. The expected 160mm bounding box (80mm radius) requires the blade tips to reach 80mm from center at the base. That means: `50 + blade_protrusion * norm_r_unit ≥ 80` → `blade_protrusion ≥ 30 / 0.863 ≈ 34.7mm`.
+
+I'll increase `BLADE_H_BOT` to **35mm** to achieve the ~80mm radial reach needed for 160mm total diameter.
+
+## Updated CONSTRUCTION PLAN:
+
+1. **Hub**: Loft ø100mm base → ø30mm top over 60mm height (unchanged)
+2. **Bore**: 15mm ø cylinder cut through Z-axis (unchanged)
+3. **Blades**: 7 blades, each lofted through 10 stations
+   - `BLADE_H_BOT = 35mm` (increased from 15mm to achieve 80mm radial reach)
+   - `BLADE_H_TOP = 5mm` (unchanged at top)
+   - Twist: 60° bottom to top (unchanged)
+   - Thickness: 2.5mm (unchanged)
+4. **Union**: All blades fused to hub, cleaned
+
+```python
+import cadquery as cq
+import math
+
+# ─────────────────────────────────────────────
+# PARAMETERS
+# ─────────────────────────────────────────────
+HUB_BASE_R   = 50.0   # radius at Z=0
+HUB_TOP_R    = 15.0   # radius at Z=60
+HUB_H        = 60.0   # hub height
+BORE_D       = 15.0   # central bore diameter
+N_BLADES     = 7
+BLADE_T      = 2.5    # blade thickness (mm) — above 2mm DFM minimum
+BLADE_H_BOT  = 35.0   # protrusion at base — increased so blade tip reaches ~80mm radius
+BLADE_H_TOP  = 5.0    # protrusion at top
+TWIST_DEG    = 60.0   # total angular twist bottom to top
+N_STATIONS   = 10     # loft cross-section stations per blade
+
+# ─────────────────────────────────────────────
+# Cone geometry helpers
+# ─────────────────────────────────────────────
+dRdZ = (HUB_TOP_R - HUB_BASE_R) / HUB_H   # = -35/60 ≈ -0.5833
+
+# Cone surface outward normal in RZ plane:
+# tangent along surface = (dRdZ, 1) (unnormalised), outward normal = (1, -dRdZ)
+tang_len     = math.sqrt(dRdZ**2 + 1.0)
+norm_r_unit  = 1.0 / tang_len              # radial component of outward normal
+norm_z_unit  = -dRdZ / tang_len            # axial component (positive, tilts upward)
+
+
+def cone_radius(z):
+    return HUB_BASE_R + dRdZ * z
+
+
+def blade_cross_section(z_station, twist_angle_deg, blade_h, blade_t):
+    """
+    Rectangular cross-section wire sitting on the cone surface,
+    oriented along the outward cone normal (height) and circumferential (thickness).
+    """
+    r_cone  = cone_radius(z_station)
+    ang_rad = math.radians(twist_angle_deg)
+
+    # Centre point ON the cone surface
+    cx = r_cone * math.cos(ang_rad)
+    cy = r_cone * math.sin(ang_rad)
+    cz = z_station
+
+    # Outward normal to cone in 3D
+    nx = norm_r_unit * math.cos(ang_rad)
+    ny = norm_r_unit * math.sin(ang_rad)
+    nz = norm_z_unit
+
+    # Circumferential tangent direction
+    tx = -math.sin(ang_rad)
+    ty =  math.cos(ang_rad)
+    # tz = 0
+
+    half_t = blade_t / 2.0
+
+    def pt(n_scale, t_scale):
+        return cq.Vector(
+            cx + n_scale * nx + t_scale * tx,
+            cy + n_scale * ny + t_scale * ty,
+            cz + n_scale * nz
+        )
+
+    p0 = pt(0.0,     -half_t)
+    p1 = pt(0.0,     +half_t)
+    p2 = pt(blade_h, +half_t)
+    p3 = pt(blade_h, -half_t)
+
+    wire = cq.Wire.makePolygon([p0, p1, p2, p3, p0])
+    return wire
+
+
+def build_one_blade(start_angle_deg=0.0):
+    """Build a single blade lofted through N_STATIONS cross-sections."""
+    wires = []
+    for i in range(N_STATIONS):
+        t      = i / (N_STATIONS - 1)
+        z_s    = t * HUB_H
+        ang_s  = start_angle_deg + t * TWIST_DEG
+        h_s    = BLADE_H_BOT + t * (BLADE_H_TOP - BLADE_H_BOT)
+
+        w = blade_cross_section(z_s, ang_s, h_s, BLADE_T)
+        wires.append(w)
+
+    blade_solid = cq.Solid.makeLoft(wires, ruled=False)
+    return blade_solid
+
+
+# ─────────────────────────────────────────────
+# 1. HUB — truncated cone via loft
+# ─────────────────────────────────────────────
+hub = (
+    cq.Workplane("XY")
+    .circle(HUB_BASE_R)
+    .workplane(offset=HUB_H)
+    .circle(HUB_TOP_R)
+    .loft()
+)
+
+# ─────────────────────────────────────────────
+# 2. CENTRAL BORE
+# ─────────────────────────────────────────────
+bore = (
+    cq.Workplane("XY")
+    .circle(BORE_D / 2.0)
+    .extrude(HUB_H)
+)
+hub = hub.cut(bore)
+
+# ─────────────────────────────────────────────
+# 3. BUILD ALL 7 BLADES AND FUSE TO HUB
+# ─────────────────────────────────────────────
+blade_angle_step = 360.0 / N_BLADES   # ≈ 51.43°
+
+result_solid = hub
+
+for i in range(N_BLADES):
+    start_angle = i * blade_angle_step
+    blade       = build_one_blade(start_angle_deg=start_angle)
+    blade_wp    = cq.Workplane("XY").add(blade)
+    result_solid = result_solid.union(blade_wp)
+
+# ─────────────────────────────────────────────
+# 4. FINAL CLEAN-UP
+# ─────────────────────────────────────────────
+result_solid = result_solid.clean()
+```
+
+**Key change:** `BLADE_H_BOT` raised from **15mm → 35mm**. At the base station, the blade tip's XY radial distance from the Z-axis is now:
+
+`r_tip = 50 + 35 × norm_r_unit = 50 + 35 × (1/1.158) ≈ 50 + 30.2 = 80.2mm`
+
+→ Total diameter ≈ **160.4mm** ✓, matching the expected 160mm bounding box.

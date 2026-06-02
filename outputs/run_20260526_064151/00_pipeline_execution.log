@@ -1,0 +1,395 @@
+[2026-05-26 06:41:51] [INFO] [pipeline:run_pipeline] - ======================================================================
+[2026-05-26 06:41:51] [INFO] [pipeline:run_pipeline] - ADVERSARIAL MULTI-AGENT CAD PIPELINE
+[2026-05-26 06:41:51] [INFO] [pipeline:run_pipeline] - ======================================================================
+[2026-05-26 06:41:51] [INFO] [pipeline:run_pipeline] - Output directory: outputs/run_20260526_064151
+[2026-05-26 06:41:51] [INFO] [pipeline:run_pipeline] - Interactive mode: False
+[2026-05-26 06:41:51] [INFO] [pipeline:run_pipeline] - Prompt: Create a complex Centrifugal Compressor Impeller. 1. The main hub is a truncated cone with a base diameter of 100mm (at Z=0), a top diameter of 30mm (at Z=60), and a total height of 60mm. 2. The hub h...
+[2026-05-26 06:41:51] [INFO] [pipeline:run_pipeline] - [INIT] Initializing Planner Agent with persistent session...
+[2026-05-26 06:41:51] [INFO] [llm:__init__] - PlannerAgent initialized with model=claude-sonnet-4-6, session=f572b2e9-c6fd-4e55-88f8-4138b38364dc
+[2026-05-26 06:41:51] [INFO] [pipeline:run_pipeline] - [PHASE 1] Requesting Construction Plan + Code from Planner Agent...
+[2026-05-26 06:41:51] [INFO] [llm:generate_cad_code] - Requesting Construction Plan + Code from planner_agent...
+[2026-05-26 06:42:51] [INFO] [pipeline:run_pipeline] - [PHASE 1] Initial construction plan saved to outputs/run_20260526_064151/02_outer0_planner_construction_plan.txt
+[2026-05-26 06:42:51] [INFO] [pipeline:run_pipeline] - [PRE] Asking Planner to self-report expected bounding box...
+[2026-05-26 06:42:51] [INFO] [llm:get_design_dimensions] - Asking planner to self-report expected bounding box...
+[2026-05-26 06:42:52] [INFO] [llm:get_design_dimensions] - Planner self-reported dimensions: {'x_mm': 139.4, 'y_mm': 139.4, 'z_mm': 73.0, 'tolerance_mm': 15}
+[2026-05-26 06:42:52] [INFO] [pipeline:run_pipeline] - [PRE] Planner self-reported dimensions: {'x_mm': 139.4, 'y_mm': 139.4, 'z_mm': 73.0, 'tolerance_mm': 15}
+[2026-05-26 06:42:52] [INFO] [pipeline:run_pipeline] - [PRE] Design brief saved to outputs/run_20260526_064151/01_design_brief.json
+[2026-05-26 06:42:52] [INFO] [pipeline:run_pipeline] - 
+======================================================================
+[2026-05-26 06:42:52] [INFO] [pipeline:run_pipeline] - OUTER LOOP — Iteration 1/5
+[2026-05-26 06:42:52] [INFO] [pipeline:run_pipeline] - ======================================================================
+[2026-05-26 06:42:52] [INFO] [pipeline:run_pipeline] - [PHASE 2] Code execution attempt 1/4...
+[2026-05-26 06:42:52] [INFO] [pipeline:run_pipeline] - [PHASE 2] Code saved to outputs/run_20260526_064151/03_outer1_inner1_planner_generated_cad_code.py
+[2026-05-26 06:42:52] [INFO] [cad_executor:execute_cad_code] - Setting up local scope for CadQuery execution...
+[2026-05-26 06:42:53] [INFO] [pipeline:run_pipeline] - [PHASE 2] ✅ Solid generated successfully!
+[2026-05-26 06:42:53] [INFO] [pipeline:run_pipeline] - [PHASE 3] Exporting solid to STEP and STL...
+[2026-05-26 06:42:53] [INFO] [pipeline:run_pipeline] - [PHASE 3] ✅ Exported STEP to outputs/run_20260526_064151/04_outer1_exported_model.step
+[2026-05-26 06:42:53] [INFO] [pipeline:run_pipeline] - [PHASE 3] ✅ Exported STL to outputs/run_20260526_064151/04_outer1_exported_model.stl
+[2026-05-26 06:42:53] [INFO] [pipeline:run_pipeline] - [PHASE 4] Running deterministic static checks...
+[2026-05-26 06:42:53] [INFO] [mesh_inspector:run_all_inspections] - Starting comprehensive mesh inspection on outputs/run_20260526_064151/04_outer1_exported_model.stl
+[2026-05-26 06:42:53] [INFO] [mesh_inspector:run_all_inspections] - Checking base stats (watertightness, volume)...
+[2026-05-26 06:42:53] [INFO] [mesh_inspector:count_degenerate_faces] - Executing count_degenerate_faces...
+[2026-05-26 06:42:53] [DEBUG] [mesh_inspector:count_degenerate_faces] - count_degenerate_faces result: 585
+[2026-05-26 06:42:53] [INFO] [mesh_inspector:check_self_intersections] - Executing check_self_intersections...
+[2026-05-26 06:42:53] [DEBUG] [mesh_inspector:check_self_intersections] - check_self_intersections result: {'has_self_intersections': True, 'intersecting_face_count': 1013}
+[2026-05-26 06:42:53] [INFO] [mesh_inspector:check_normals_consistency] - Executing check_normals_consistency...
+[2026-05-26 06:42:53] [DEBUG] [mesh_inspector:check_normals_consistency] - check_normals_consistency result: {'normals_consistent': False, 'flipped_regions': 332}
+[2026-05-26 06:42:53] [INFO] [mesh_inspector:check_wall_thickness] - Executing check_wall_thickness with threshold 2.0mm...
+[2026-05-26 06:42:53] [INFO] [mesh_inspector:check_wall_thickness] - Wall thickness stats: raw_min=0.004mm, structural_min=0.989mm, p5=5.672mm, median=12.507mm, artifacts_filtered=6, thin_structural_regions=1
+[2026-05-26 06:42:53] [INFO] [mesh_inspector:check_dimensions_vs_plan] - Executing check_dimensions_vs_plan...
+[2026-05-26 06:42:53] [DEBUG] [mesh_inspector:check_dimensions_vs_plan] - check_dimensions_vs_plan result: {'dimensions': {'x_mm': {'expected': 139.4, 'measured': 120.113, 'delta_mm': 19.287, 'tolerance_mm': 15, 'passed': False}, 'y_mm': {'expected': 139.4, 'measured': 123.201, 'delta_mm': 16.199, 'tolerance_mm': 15, 'passed': False}, 'z_mm': {'expected': 73.0, 'measured': 62.519, 'delta_mm': 10.481, 'tolerance_mm': 15, 'passed': True}}, 'all_dimensions_pass': False}
+[2026-05-26 06:42:53] [INFO] [mesh_inspector:run_all_inspections] - Inspection complete. Overall Validity: False
+[2026-05-26 06:42:53] [WARNING] [mesh_inspector:run_all_inspections] - HARD FAILURE: Mesh is not watertight (has holes or open boundaries)
+[2026-05-26 06:42:53] [WARNING] [mesh_inspector:run_all_inspections] - HARD FAILURE: Mesh has 1013 self-intersecting faces
+[2026-05-26 06:42:53] [WARNING] [mesh_inspector:run_all_inspections] - HARD FAILURE: Mesh has 332 flipped/inconsistent normal regions
+[2026-05-26 06:42:53] [WARNING] [mesh_inspector:run_all_inspections] - HARD FAILURE: Dimension x_mm: expected 139.4mm, measured 120.113mm (delta 19.287mm)
+[2026-05-26 06:42:53] [WARNING] [mesh_inspector:run_all_inspections] - HARD FAILURE: Dimension y_mm: expected 139.4mm, measured 123.201mm (delta 16.199mm)
+[2026-05-26 06:42:53] [INFO] [mesh_inspector:run_all_inspections] - Saved inspection JSON report to outputs/run_20260526_064151/05_outer1_static_inspection_ground_truth.json
+[2026-05-26 06:42:53] [WARNING] [pipeline:run_pipeline] - [PHASE 4] ❌ Static checks found 5 hard failure(s):
+[2026-05-26 06:42:53] [WARNING] [pipeline:run_pipeline] -   → Mesh is not watertight (has holes or open boundaries)
+[2026-05-26 06:42:53] [WARNING] [pipeline:run_pipeline] -   → Mesh has 1013 self-intersecting faces
+[2026-05-26 06:42:53] [WARNING] [pipeline:run_pipeline] -   → Mesh has 332 flipped/inconsistent normal regions
+[2026-05-26 06:42:53] [WARNING] [pipeline:run_pipeline] -   → Dimension x_mm: expected 139.4mm, measured 120.113mm (delta 19.287mm)
+[2026-05-26 06:42:53] [WARNING] [pipeline:run_pipeline] -   → Dimension y_mm: expected 139.4mm, measured 123.201mm (delta 16.199mm)
+[2026-05-26 06:42:53] [INFO] [pipeline:run_pipeline] - [PHASE 4] Short-circuiting to Planner (skipping AI inspection)...
+[2026-05-26 06:42:53] [INFO] [llm:regenerate_with_feedback] - Sending feedback to planner_agent for regeneration...
+[2026-05-26 06:43:41] [INFO] [pipeline:run_pipeline] - 
+======================================================================
+[2026-05-26 06:43:41] [INFO] [pipeline:run_pipeline] - OUTER LOOP — Iteration 2/5
+[2026-05-26 06:43:41] [INFO] [pipeline:run_pipeline] - ======================================================================
+[2026-05-26 06:43:41] [INFO] [pipeline:run_pipeline] - [PHASE 2] Code execution attempt 1/4...
+[2026-05-26 06:43:41] [INFO] [pipeline:run_pipeline] - [PHASE 2] Code saved to outputs/run_20260526_064151/03_outer2_inner1_planner_generated_cad_code.py
+[2026-05-26 06:43:41] [INFO] [cad_executor:execute_cad_code] - Setting up local scope for CadQuery execution...
+[2026-05-26 06:43:41] [ERROR] [pipeline:run_pipeline] - [PHASE 2] ❌ Code execution failed: Code execution failed: name 'HUB_H' is not defined
+[2026-05-26 06:43:41] [INFO] [pipeline:run_pipeline] - [PHASE 2] Sending error feedback to Planner for code fix...
+[2026-05-26 06:43:41] [INFO] [llm:regenerate_with_feedback] - Sending feedback to planner_agent for regeneration...
+[2026-05-26 06:44:09] [INFO] [pipeline:run_pipeline] - [PHASE 2] Code execution attempt 2/4...
+[2026-05-26 06:44:09] [INFO] [pipeline:run_pipeline] - [PHASE 2] Code saved to outputs/run_20260526_064151/03_outer2_inner2_planner_generated_cad_code.py
+[2026-05-26 06:44:09] [INFO] [cad_executor:execute_cad_code] - Setting up local scope for CadQuery execution...
+[2026-05-26 06:44:09] [ERROR] [pipeline:run_pipeline] - [PHASE 2] ❌ Code execution failed: Code execution failed: name 'HUB_H' is not defined
+[2026-05-26 06:44:09] [INFO] [pipeline:run_pipeline] - [PHASE 2] Sending error feedback to Planner for code fix...
+[2026-05-26 06:44:09] [INFO] [llm:regenerate_with_feedback] - Sending feedback to planner_agent for regeneration...
+[2026-05-26 06:44:38] [INFO] [pipeline:run_pipeline] - [PHASE 2] Code execution attempt 3/4...
+[2026-05-26 06:44:38] [INFO] [pipeline:run_pipeline] - [PHASE 2] Code saved to outputs/run_20260526_064151/03_outer2_inner3_planner_generated_cad_code.py
+[2026-05-26 06:44:38] [INFO] [cad_executor:execute_cad_code] - Setting up local scope for CadQuery execution...
+[2026-05-26 06:44:39] [INFO] [pipeline:run_pipeline] - [PHASE 2] ✅ Solid generated successfully!
+[2026-05-26 06:44:39] [INFO] [pipeline:run_pipeline] - [PHASE 3] Exporting solid to STEP and STL...
+[2026-05-26 06:44:39] [INFO] [pipeline:run_pipeline] - [PHASE 3] ✅ Exported STEP to outputs/run_20260526_064151/04_outer2_exported_model.step
+[2026-05-26 06:44:39] [INFO] [pipeline:run_pipeline] - [PHASE 3] ✅ Exported STL to outputs/run_20260526_064151/04_outer2_exported_model.stl
+[2026-05-26 06:44:39] [INFO] [pipeline:run_pipeline] - [PHASE 4] Running deterministic static checks...
+[2026-05-26 06:44:39] [INFO] [mesh_inspector:run_all_inspections] - Starting comprehensive mesh inspection on outputs/run_20260526_064151/04_outer2_exported_model.stl
+[2026-05-26 06:44:39] [INFO] [mesh_inspector:run_all_inspections] - Checking base stats (watertightness, volume)...
+[2026-05-26 06:44:39] [INFO] [mesh_inspector:count_degenerate_faces] - Executing count_degenerate_faces...
+[2026-05-26 06:44:39] [DEBUG] [mesh_inspector:count_degenerate_faces] - count_degenerate_faces result: 0
+[2026-05-26 06:44:39] [INFO] [mesh_inspector:check_self_intersections] - Executing check_self_intersections...
+[2026-05-26 06:44:39] [DEBUG] [mesh_inspector:check_self_intersections] - check_self_intersections result: {'has_self_intersections': False, 'intersecting_face_count': 0}
+[2026-05-26 06:44:39] [INFO] [mesh_inspector:check_normals_consistency] - Executing check_normals_consistency...
+[2026-05-26 06:44:39] [DEBUG] [mesh_inspector:check_normals_consistency] - check_normals_consistency result: {'normals_consistent': True, 'flipped_regions': 0}
+[2026-05-26 06:44:39] [INFO] [mesh_inspector:check_wall_thickness] - Executing check_wall_thickness with threshold 2.0mm...
+[2026-05-26 06:44:39] [INFO] [mesh_inspector:check_wall_thickness] - Wall thickness stats: raw_min=0.779mm, structural_min=0.779mm, p5=1.657mm, median=24.121mm, artifacts_filtered=0, thin_structural_regions=7
+[2026-05-26 06:44:39] [INFO] [mesh_inspector:check_dimensions_vs_plan] - Executing check_dimensions_vs_plan...
+[2026-05-26 06:44:39] [DEBUG] [mesh_inspector:check_dimensions_vs_plan] - check_dimensions_vs_plan result: {'dimensions': {'x_mm': {'expected': 139.4, 'measured': 123.997, 'delta_mm': 15.403, 'tolerance_mm': 15, 'passed': False}, 'y_mm': {'expected': 139.4, 'measured': 127.186, 'delta_mm': 12.214, 'tolerance_mm': 15, 'passed': True}, 'z_mm': {'expected': 73.0, 'measured': 60.0, 'delta_mm': 13.0, 'tolerance_mm': 15, 'passed': True}}, 'all_dimensions_pass': False}
+[2026-05-26 06:44:39] [INFO] [mesh_inspector:run_all_inspections] - Inspection complete. Overall Validity: False
+[2026-05-26 06:44:39] [WARNING] [mesh_inspector:run_all_inspections] - HARD FAILURE: Dimension x_mm: expected 139.4mm, measured 123.997mm (delta 15.403mm)
+[2026-05-26 06:44:39] [WARNING] [mesh_inspector:run_all_inspections] - SOFT FAILURE (DFM): DFM_WALL_THICKNESS: Structural min=0.779mm (required: 2.0mm, deficit: 1.221mm). P5=1.657mm, median=24.121mm. Raw min=0.779mm (artifacts filtered: 0). 7 structural thin region(s). Samples: [face 275=1.361mm (Z=1.7mm), face 458=1.379mm (Z=1.7mm), face 461=1.361mm (Z=1.7mm), face 644=1.379mm (Z=1.7mm), face 647=1.361mm (Z=1.7mm)]
+[2026-05-26 06:44:39] [INFO] [mesh_inspector:run_all_inspections] - Saved inspection JSON report to outputs/run_20260526_064151/05_outer2_static_inspection_ground_truth.json
+[2026-05-26 06:44:39] [WARNING] [pipeline:run_pipeline] - [PHASE 4] ❌ Static checks found 1 hard failure(s):
+[2026-05-26 06:44:39] [WARNING] [pipeline:run_pipeline] -   → Dimension x_mm: expected 139.4mm, measured 123.997mm (delta 15.403mm)
+[2026-05-26 06:44:39] [INFO] [pipeline:run_pipeline] - [PHASE 4] Short-circuiting to Planner (skipping AI inspection)...
+[2026-05-26 06:44:39] [INFO] [llm:regenerate_with_feedback] - Sending feedback to planner_agent for regeneration...
+[2026-05-26 06:45:18] [INFO] [pipeline:run_pipeline] - 
+======================================================================
+[2026-05-26 06:45:18] [INFO] [pipeline:run_pipeline] - OUTER LOOP — Iteration 3/5
+[2026-05-26 06:45:18] [INFO] [pipeline:run_pipeline] - ======================================================================
+[2026-05-26 06:45:18] [INFO] [pipeline:run_pipeline] - [PHASE 2] Code execution attempt 1/4...
+[2026-05-26 06:45:18] [INFO] [pipeline:run_pipeline] - [PHASE 2] Code saved to outputs/run_20260526_064151/03_outer3_inner1_planner_generated_cad_code.py
+[2026-05-26 06:45:18] [INFO] [cad_executor:execute_cad_code] - Setting up local scope for CadQuery execution...
+[2026-05-26 06:45:20] [INFO] [pipeline:run_pipeline] - [PHASE 2] ✅ Solid generated successfully!
+[2026-05-26 06:45:20] [INFO] [pipeline:run_pipeline] - [PHASE 3] Exporting solid to STEP and STL...
+[2026-05-26 06:45:20] [INFO] [pipeline:run_pipeline] - [PHASE 3] ✅ Exported STEP to outputs/run_20260526_064151/04_outer3_exported_model.step
+[2026-05-26 06:45:20] [INFO] [pipeline:run_pipeline] - [PHASE 3] ✅ Exported STL to outputs/run_20260526_064151/04_outer3_exported_model.stl
+[2026-05-26 06:45:20] [INFO] [pipeline:run_pipeline] - [PHASE 4] Running deterministic static checks...
+[2026-05-26 06:45:20] [INFO] [mesh_inspector:run_all_inspections] - Starting comprehensive mesh inspection on outputs/run_20260526_064151/04_outer3_exported_model.stl
+[2026-05-26 06:45:20] [INFO] [mesh_inspector:run_all_inspections] - Checking base stats (watertightness, volume)...
+[2026-05-26 06:45:20] [INFO] [mesh_inspector:count_degenerate_faces] - Executing count_degenerate_faces...
+[2026-05-26 06:45:20] [DEBUG] [mesh_inspector:count_degenerate_faces] - count_degenerate_faces result: 0
+[2026-05-26 06:45:20] [INFO] [mesh_inspector:check_self_intersections] - Executing check_self_intersections...
+[2026-05-26 06:45:20] [DEBUG] [mesh_inspector:check_self_intersections] - check_self_intersections result: {'has_self_intersections': False, 'intersecting_face_count': 0}
+[2026-05-26 06:45:20] [INFO] [mesh_inspector:check_normals_consistency] - Executing check_normals_consistency...
+[2026-05-26 06:45:20] [DEBUG] [mesh_inspector:check_normals_consistency] - check_normals_consistency result: {'normals_consistent': True, 'flipped_regions': 0}
+[2026-05-26 06:45:20] [INFO] [mesh_inspector:check_wall_thickness] - Executing check_wall_thickness with threshold 2.0mm...
+[2026-05-26 06:45:20] [INFO] [mesh_inspector:check_wall_thickness] - Wall thickness stats: raw_min=0.769mm, structural_min=0.769mm, p5=1.657mm, median=24.121mm, artifacts_filtered=0, thin_structural_regions=11
+[2026-05-26 06:45:20] [INFO] [mesh_inspector:check_dimensions_vs_plan] - Executing check_dimensions_vs_plan...
+[2026-05-26 06:45:20] [DEBUG] [mesh_inspector:check_dimensions_vs_plan] - check_dimensions_vs_plan result: {'dimensions': {'x_mm': {'expected': 139.4, 'measured': 137.304, 'delta_mm': 2.096, 'tolerance_mm': 15, 'passed': True}, 'y_mm': {'expected': 139.4, 'measured': 140.835, 'delta_mm': 1.435, 'tolerance_mm': 15, 'passed': True}, 'z_mm': {'expected': 73.0, 'measured': 60.0, 'delta_mm': 13.0, 'tolerance_mm': 15, 'passed': True}}, 'all_dimensions_pass': True}
+[2026-05-26 06:45:20] [INFO] [mesh_inspector:run_all_inspections] - Inspection complete. Overall Validity: False
+[2026-05-26 06:45:20] [WARNING] [mesh_inspector:run_all_inspections] - SOFT FAILURE (DFM): DFM_WALL_THICKNESS: Structural min=0.769mm (required: 2.0mm, deficit: 1.231mm). P5=1.657mm, median=24.121mm. Raw min=0.769mm (artifacts filtered: 0). 11 structural thin region(s). Samples: [face 274=1.702mm (Z=1.7mm), face 275=1.294mm (Z=1.7mm), face 458=1.314mm (Z=1.7mm), face 460=1.702mm (Z=1.7mm), face 461=1.294mm (Z=1.7mm)]
+[2026-05-26 06:45:20] [INFO] [mesh_inspector:run_all_inspections] - Saved inspection JSON report to outputs/run_20260526_064151/05_outer3_static_inspection_ground_truth.json
+[2026-05-26 06:45:20] [INFO] [pipeline:run_pipeline] - [PHASE 4] ✅ No hard failures (geometry is valid).
+[2026-05-26 06:45:20] [WARNING] [pipeline:run_pipeline] - [PHASE 4b] ⚠ DFM soft failure(s) detected (1):
+[2026-05-26 06:45:20] [WARNING] [pipeline:run_pipeline] -   → DFM_WALL_THICKNESS: Structural min=0.769mm (required: 2.0mm, deficit: 1.231mm). P5=1.657mm, median=24.121mm. Raw min=0.769mm (artifacts filtered: 0). 11 structural thin region(s). Samples: [face 274=1.702mm (Z=1.7mm), face 275=1.294mm (Z=1.7mm), face 458=1.314mm (Z=1.7mm), face 460=1.702mm (Z=1.7mm), face 461=1.294mm (Z=1.7mm)]
+[2026-05-26 06:45:20] [INFO] [pipeline:run_pipeline] - [PHASE 4b] Short-circuiting to Planner (skipping AI — we already know the answer)...
+[2026-05-26 06:45:20] [INFO] [llm:regenerate_with_feedback] - Sending feedback to planner_agent for regeneration...
+[2026-05-26 06:45:53] [INFO] [pipeline:run_pipeline] - 
+======================================================================
+[2026-05-26 06:45:53] [INFO] [pipeline:run_pipeline] - OUTER LOOP — Iteration 4/5
+[2026-05-26 06:45:53] [INFO] [pipeline:run_pipeline] - ======================================================================
+[2026-05-26 06:45:53] [INFO] [pipeline:run_pipeline] - [PHASE 2] Code execution attempt 1/4...
+[2026-05-26 06:45:53] [INFO] [pipeline:run_pipeline] - [PHASE 2] Code saved to outputs/run_20260526_064151/03_outer4_inner1_planner_generated_cad_code.py
+[2026-05-26 06:45:53] [INFO] [cad_executor:execute_cad_code] - Setting up local scope for CadQuery execution...
+[2026-05-26 06:45:55] [INFO] [pipeline:run_pipeline] - [PHASE 2] ✅ Solid generated successfully!
+[2026-05-26 06:45:55] [INFO] [pipeline:run_pipeline] - [PHASE 3] Exporting solid to STEP and STL...
+[2026-05-26 06:45:55] [INFO] [pipeline:run_pipeline] - [PHASE 3] ✅ Exported STEP to outputs/run_20260526_064151/04_outer4_exported_model.step
+[2026-05-26 06:45:55] [INFO] [pipeline:run_pipeline] - [PHASE 3] ✅ Exported STL to outputs/run_20260526_064151/04_outer4_exported_model.stl
+[2026-05-26 06:45:55] [INFO] [pipeline:run_pipeline] - [PHASE 4] Running deterministic static checks...
+[2026-05-26 06:45:55] [INFO] [mesh_inspector:run_all_inspections] - Starting comprehensive mesh inspection on outputs/run_20260526_064151/04_outer4_exported_model.stl
+[2026-05-26 06:45:55] [INFO] [mesh_inspector:run_all_inspections] - Checking base stats (watertightness, volume)...
+[2026-05-26 06:45:55] [INFO] [mesh_inspector:count_degenerate_faces] - Executing count_degenerate_faces...
+[2026-05-26 06:45:55] [DEBUG] [mesh_inspector:count_degenerate_faces] - count_degenerate_faces result: 0
+[2026-05-26 06:45:55] [INFO] [mesh_inspector:check_self_intersections] - Executing check_self_intersections...
+[2026-05-26 06:45:55] [DEBUG] [mesh_inspector:check_self_intersections] - check_self_intersections result: {'has_self_intersections': False, 'intersecting_face_count': 0}
+[2026-05-26 06:45:55] [INFO] [mesh_inspector:check_normals_consistency] - Executing check_normals_consistency...
+[2026-05-26 06:45:55] [DEBUG] [mesh_inspector:check_normals_consistency] - check_normals_consistency result: {'normals_consistent': True, 'flipped_regions': 0}
+[2026-05-26 06:45:55] [INFO] [mesh_inspector:check_wall_thickness] - Executing check_wall_thickness with threshold 2.0mm...
+[2026-05-26 06:45:55] [INFO] [mesh_inspector:check_wall_thickness] - Wall thickness stats: raw_min=0.96mm, structural_min=0.96mm, p5=1.892mm, median=24.097mm, artifacts_filtered=0, thin_structural_regions=9
+[2026-05-26 06:45:55] [INFO] [mesh_inspector:check_dimensions_vs_plan] - Executing check_dimensions_vs_plan...
+[2026-05-26 06:45:55] [DEBUG] [mesh_inspector:check_dimensions_vs_plan] - check_dimensions_vs_plan result: {'dimensions': {'x_mm': {'expected': 139.4, 'measured': 137.447, 'delta_mm': 1.953, 'tolerance_mm': 15, 'passed': True}, 'y_mm': {'expected': 139.4, 'measured': 140.982, 'delta_mm': 1.582, 'tolerance_mm': 15, 'passed': True}, 'z_mm': {'expected': 73.0, 'measured': 60.0, 'delta_mm': 13.0, 'tolerance_mm': 15, 'passed': True}}, 'all_dimensions_pass': True}
+[2026-05-26 06:45:55] [INFO] [mesh_inspector:run_all_inspections] - Inspection complete. Overall Validity: True
+[2026-05-26 06:45:55] [INFO] [mesh_inspector:run_all_inspections] - Saved inspection JSON report to outputs/run_20260526_064151/05_outer4_static_inspection_ground_truth.json
+[2026-05-26 06:45:55] [INFO] [pipeline:run_pipeline] - [PHASE 4] ✅ No hard failures (geometry is valid).
+[2026-05-26 06:45:55] [INFO] [pipeline:run_pipeline] - [PHASE 4] ✅ All static AND DFM checks passed!
+[2026-05-26 06:45:55] [INFO] [pipeline:run_pipeline] - [PHASE 5] Running MeshLib AI Inspector Agent...
+[2026-05-26 06:53:48] [INFO] [pipeline:run_pipeline] - [PHASE 5] AI findings saved to outputs/run_20260526_064151/06a_outer4_ai_inspector_findings.json
+[2026-05-26 06:53:48] [INFO] [pipeline:run_pipeline] - [PHASE 5] AI Summary: I now have comprehensive data. Let me compile all findings into the final JSON report:
+
+```json
+{
+  "checks": [
+    {
+      "check_name": "Hub Z-height",
+      "measured": 60.0,
+      "expected": 60.0,
+      "tolerance": 15.0,
+      "passed": true,
+      "unit": "mm",
+      "reason": "Bounding box Z-extent = 60.0 mm. Design specifies hub height from Z=0 to Z=60. Exact match."
+    },
+    {
+      "check_name": "Overall X-extent",
+      "measured": 137.4468,
+      "expected": 139.4,
+      "tolerance": 15.0,
+      "passed": true,
+      "unit": "mm",
+      "reason": "Bounding box X-extent = 137.45 mm. Expected ~139.4 mm (base r=50 + 15 mm blade protrusion = 65 mm radius = 130 mm dia + blade thickness). Delta = 1.95 mm, within ±15 mm tolerance."
+    },
+    {
+      "check_name": "Overall Y-extent",
+      "measured": 140.9815,
+      "expected": 139.4,
+      "tolerance": 15.0,
+      "passed": true,
+      "unit": "mm",
+      "reason": "Bounding box Y-extent = 140.98 mm. Expected ~139.4 mm. Delta = 1.58 mm, within ±15 mm tolerance."
+    },
+    {
+      "check_name": "Mesh Z minimum (base at Z=0)",
+      "measured": 0.0,
+      "expected": 0.0,
+      "tolerance": 2.0,
+      "passed": true,
+      "unit": "mm",
+      "reason": "Mesh base exactly at Z=0 as designed."
+    },
+    {
+      "check_name": "Mesh Z maximum (top at Z=60)",
+      "measured": 60.0,
+      "expected": 60.0,
+      "tolerance": 15.0,
+      "passed": true,
+      "unit": "mm",
+      "reason": "Mesh top exactly at Z=60 mm. Hub and blades do not extend beyond the specified height."
+    },
+    {
+      "check_name": "Max radius at Z≤2 mm (hub base + blade protrusion, target ~65 mm)",
+      "measured": 72.0123,
+      "expected": 65.0,
+      "tolerance": 10.0,
+      "passed": true,
+      "unit": "mm",
+      "reason": "Maximum vertex radius at base = 72.01 mm. Expected hub r=50 + blade protrusion 15 mm = 65 mm. Actual exceeds target by ~7 mm, suggesting blade protrusion at base is ~22 mm not 15 mm (see dedicated blade protrusion check). Within 10 mm tolerance."
+    },
+    {
+      "check_name": "Central bore present (vertices near Z-axis)",
+      "measured": true,
+      "expected": true,
+      "tolerance": null,
+      "passed": true,
+      "unit": "bool",
+      "reason": "Vertices detected at radius < 9 mm from Z-axis confirming bore geometry is represented in the mesh."
+    },
+    {
+      "check_name": "Central bore estimated diameter",
+      "measured": 15.0,
+      "expected": 15.0,
+      "tolerance": 3.0,
+      "passed": true,
+      "unit": "mm",
+      "reason": "Inner bore-wall vertices found at radius 7.5 mm (diameter 15.0 mm). Matches design specification exactly."
+    },
+    {
+      "check_name": "Through-bore topology: open hole boundary loops",
+      "measured": 0,
+      "expected": 2,
+      "tolerance": null,
+      "passed": false,
+      "unit": "count",
+      "reason": "A through-bore should produce 2 open boundary edge loops (one at Z=0, one at Z=60). The mesh has 0 open holes — bore interior vertices are present but the bore is topologically capped/closed, making it geometrically present but not a through-hole in the solid sense. Confirmed by baseline hole_count=0."
+    },
+    {
+      "check_name": "Max radius at Z≥58 mm (hub top + blade protrusion, target ~20 mm)",
+      "measured": 21.5411,
+      "expected": 20.0,
+      "tolerance": 8.0,
+      "passed": true,
+      "unit": "mm",
+      "reason": "Maximum vertex radius near top = 21.54 mm. Expected hub top r=15 mm + 5 mm blade protrusion = 20 mm. Delta = 1.54 mm, within 8 mm tolerance."
+    },
+    {
+      "check_name": "Number of aerodynamic blade clusters (target 7)",
+      "measured": 7,
+      "expected": 7,
+      "tolerance": 0,
+      "passed": true,
+      "unit": "count",
+      "reason": "Exactly 7 distinct angular clusters of vertices extending beyond r=55 mm were detected, confirming 7 blades present. Cluster centers at ~30.0°, 61.4°, 112.9°, 164.3°, 215.7°, 267.1°, 318.6°."
+    },
+    {
+      "check_name": "Blade angular spacing (target 51.43° for 7 even blades)",
+      "measured": 51.43,
+      "expected": 51.43,
+      "tolerance": 15.0,
+      "passed": false,
+      "unit": "degrees",
+      "reason": "Average spacing = 51.43° but one pair has only 31.4° (between 30.0° and 61.4°) and another has 71.4° (318.6° to 30.0°), yielding a max deviation of 20.03°. Five of seven spacings are near-ideal (~51.4–51.5°), but two blades are anomalously close or far apart."
+    },
+    {
+      "check_name": "Blade vertex Z range at r≥50 mm",
+      "measured": "0.0 to 25.0",
+      "expected": "0.0 to 60.0",
+      "tolerance": null,
+      "passed": false,
+      "unit": "mm",
+      "reason": "Blade vertices at r≥50 mm only span Z=0 to Z=25 mm. Design specifies blades run from Z=0 (r=50) all the way up to Z=60 (r=15), but outer-radius blade geometry terminates at Z=25. This indicates blades do not extend to the full hub height at their protrusion radii."
+    },
+    {
+      "check_name": "Blade twist angle over Z=0 to Z=25 mm span (extrapolated to 60 mm target)",
+      "measured": "4.73–32.53 (avg ~16.8)",
+      "expected": 25.0,
+      "tolerance": 10.0,
+      "passed": false,
+      "unit": "degrees",
+      "reason": "Blade outer vertices (r≥50) only extend to Z=25 mm (42% of full height). Over this span, twist ranges widely from 4.73° (Blade 6) to 32.53° (Blade 0), averaging ~16.8°. For a 25 mm span, expected ~25° partial twist (60°×25/60). Most blades show less twist than expected even over the partial span, and Blade 6 shows nearly zero twist (4.73°). The inconsistent twist angles indicate the blade sweep geometry is not uniformly implemented."
+    },
+    {
+      "check_name": "Blade protrusion at base (target 15 mm beyond hub r=50)",
+      "measured": 22.0123,
+      "expected": 15.0,
+      "tolerance": 5.0,
+      "passed": false,
+      "unit": "mm",
+      "reason": "Maximum vertex radius at Z≤3 mm = 72.01 mm. Hub base radius = 50 mm. Measured protrusion = 22.01 mm. Exceeds design specification of 15 mm by ~7 mm (47% over-protrusion)."
+    },
+    {
+      "check_name": "Blade protrusion at top (target 5 mm beyond hub r=15)",
+      "measured": 8.6416,
+      "expected": 5.0,
+      "tolerance": 3.0,
+      "passed": false,
+      "unit": "mm",
+      "reason": "Maximum vertex radius at Z≥57 mm = 23.64 mm. Hub top radius = 15 mm. Measured protrusion = 8.64 mm. Exceeds design specification of 5 mm by ~3.6 mm (73% over-protrusion)."
+    },
+    {
+      "check_name": "Min wall thickness radial at Z=30 mm (bore wall to cone surface)",
+      "measured": 2.4977,
+      "expected": 2.0,
+      "tolerance": 0,
+      "passed": true,
+      "unit": "mm",
+      "reason": "Radial rays cast from r=5 mm outward at Z=30 mm in 36 directions. Minimum measured distance to first mesh surface = 2.498 mm. Meets the ≥2 mm minimum wall requirement."
+    },
+    {
+      "check_name": "Blade tangential thickness at r=63 mm, Z=8 mm (target 2 mm)",
+      "measured": 2.658,
+      "expected": 2.0,
+      "tolerance": 1.5,
+      "passed": true,
+      "unit": "mm",
+      "reason": "Tangential double-hit ray-cast through 6 blade cross-sections at r=63 mm, Z=8 mm. Average blade thickness = 2.658 mm. Within ±1.5 mm tolerance of target 2 mm."
+    },
+    {
+      "check_name": "Hub cone taper half-angle",
+      "measured": 30.26,
+      "expected": 30.26,
+      "tolerance": null,
+      "passed": true,
+      "unit": "degrees",
+      "reason": "Theoretical half-angle from base r=50 mm to top r=15 mm over height 60 mm: atan(35/60) = 30.26°. Vertex distribution at base (~50 mm radius) and top (~15 mm radius) confirms this taper geometry is correctly implemented."
+    }
+  ],
+  "anomalies": [
+    "Blade angular spacing is non-uniform: two adjacent blade clusters at 30.0° and 61.4° are only 31.4° apart (vs ideal 51.4°), while the wrap-around gap between 318.6° and 30.0° is 71.4°. Five of seven gaps are correctly spaced at ~51.4–51.5°.",
+    "Blade outer-radius vertices (r≥50 mm) do not extend beyond Z=25 mm, despite the design requiring blades to run the full Z=0 to Z=60 mm height. The hub narrows from r=50 to r=15 from base to top, so at Z=25 the hub surface is at r≈35.4 mm; blades should still protrude beyond this.",
+    "Blade twist is highly inconsistent across the 7 blades: values range from 4.73° to 32.53° over the same Z=0–25 mm span. This suggests the blade sweep path was not uniformly applied to all 7 blades.",
+    "Central bore at 15 mm diameter is geometrically present (bore-wall vertices at r=7.5 mm confirmed), but the mesh is watertight with 0 open boundary loops. This means the bore is a solid geometric feature without actual through-hole topology — it would not function as a through-bore for a driveshaft without post-processing.",
+    "Blade protrusion at the base measures 22.0 mm (not 15 mm as specified), and at the top 8.6 mm (not 5 mm). The protrusion taper ratio is approximately correct in direction (22 mm base → 8.6 mm top, vs specified 15 mm → 5 mm) but both values are scaled up by ~46–73%.",
+    "Mesh resolution is relatively low (1505 vertices, 3010 faces), which limits measurement precision for blade thickness and twist angle analysis."
+  ],
+  "engineer_summary": "The impeller has the correct Z-height (60.0 mm exact), overall footprint within tolerance (X=137.4 mm, Y=141.0 mm vs 139.4 mm target), 7 blades present, a 15 mm diameter bore correctly dimensioned but topologically capped (watertight, not a true through-hole), and minimum wall thickness ≥2 mm met (2.50 mm at bore wall). Blade tangential thickness measures 2.66 mm, close to the 2 mm target. However, four significant deviations exist: (1) blade protrusion at base is 22.0 mm not 15 mm and at top 8.6 mm not 5 mm; (2) blade outer-radius geometry terminates at Z=25 mm rather than extending to Z=60 mm; (3) blade angular spacing is non-uniform with one pair only 31.4° apart vs 51.4° ideal; and (4) blade twist is inconsistent across blades (4.7°–32.5° over partial span), with Blade 6 showing almost no twist. The bore is capped rather than open, requiring machining to create the driveshaft through-hole.",
+  "confidence": "HIGH"
+}
+```
+[2026-05-26 06:53:48] [INFO] [pipeline:run_pipeline] - [PHASE 5] AI Confidence: LOW
+[2026-05-26 06:53:48] [INFO] [pipeline:run_pipeline] - [PHASE 6] Running Adversarial Reviewer Agent...
+[2026-05-26 06:53:48] [INFO] [pipeline:run_pipeline] - [PHASE 6] (Reviewer sees: Design Brief + Static Results + AI Findings)
+[2026-05-26 06:53:48] [INFO] [pipeline:run_pipeline] - [PHASE 6] (Reviewer does NOT see: generated CadQuery code)
+[2026-05-26 06:54:38] [INFO] [pipeline:run_pipeline] - [PHASE 6] Decision: REDESIGN (Confidence: HIGH)
+[2026-05-26 06:54:38] [INFO] [pipeline:run_pipeline] - [PHASE 6] Reasoning: Step 1 — Parse and reconcile the AI findings. The AI agent's response was trapped in an 'anomalies' parse-error field but the actual JSON content is fully readable and internally consistent. The AI reports HIGH confidence on its own findings. I will treat the extracted checks as the AI's findings.
+
+...
+[2026-05-26 06:54:38] [INFO] [pipeline:run_pipeline] - [PHASE 6] Discrepancies found between static and AI results:
+[2026-05-26 06:54:38] [INFO] [pipeline:run_pipeline] -   ⚠ Static passes_minimum=true for wall thickness, but raw_min_wall_thickness_mm=0.96 mm is below the design brief's required 2.0 mm minimum — the static checker's pass/fail threshold appears inconsistent with the design brief requirement.
+[2026-05-26 06:54:38] [INFO] [pipeline:run_pipeline] -   ⚠ AI 'Blade vertex Z range at r≥50mm' check concludes blades don't extend to Z=60 mm, but this criterion is geometrically inappropriate: the hub tapers so its surface is at r<50 mm above Z≈25 mm; finding no blade vertices at r≥50 mm above Z=25 mm is expected geometry, not a blade coverage failure. This specific AI sub-check is unreliable.
+[2026-05-26 06:54:38] [INFO] [pipeline:run_pipeline] -   ⚠ AI reports blade base protrusion of 22 mm (implying ~144 mm outer diameter), yet the bounding box X=137.4 mm is consistent with ~65–70 mm radius, suggesting the 22 mm maximum protrusion figure may be for a single blade tip in one direction rather than a full-diameter claim — partial inconsistency but not definitive contradiction.
+[2026-05-26 06:54:38] [WARNING] [pipeline:run_pipeline] - [PHASE 6] 🔄 REDESIGN requested. Recommendations: 1. CRITICAL — THROUGH-BORE: The central bore must be implemented as a true Boolean subtraction of a 15 mm diameter cylinder through the full Z=0 to Z=60 mm hub, not as a blind or capped feature. The watertight static check confirms the bore is currently sealed. Use CadQuery's .cut() operation to subtract a full-height cylinder of diameter 15 mm centered on the Z-axis from the hub solid before unioning with blades. 2. WALL THICKNESS — BLADE BASES: The blade root intersections at Z≈1.7 mm have walls as thin as 0.96 mm. Increase the blade root fillet radius or increase blade thickness from 2 mm to at least 2.5 mm to ensure all walls ≥2 mm. Alternatively, ensure the blade-hub junction is smoothly blended with a 1 mm minimum fillet. 3. BLADE ANGULAR SPACING: Ensure blades are placed at exactly 360°/7 ≈ 51.43° intervals (0°, 51.43°, 102.86°, 154.29°, 205.71°, 257.14°, 308.57°) to guarantee uniform aerodynamic loading. Debug the rotation loop that generates blade positions. 4. BLADE PROTRUSION SCALING: Reduce blade protrusion from the current ~22 mm at base to exactly 15 mm, and from ~8.6 mm at top to exactly 5 mm. The blade profile cross-section appears to be oversized by approximately 1.47×; scale blade cross-section profiles down accordingly. 5. BLADE TWIST: Ensure all 7 blades use the identical sweep path with 60° twist from Z=0 to Z=60 mm. The sweep spine should rotate uniformly; verify that the angular offset for each blade is applied consistently before the sweep operation, not as part of the sweep path itself.
+[2026-05-26 06:54:38] [INFO] [pipeline:run_pipeline] - [PHASE 6] Feeding reviewer recommendations back to Planner (iteration 5)...
+[2026-05-26 06:54:38] [INFO] [llm:regenerate_with_feedback] - Sending feedback to planner_agent for regeneration...
+[2026-05-26 06:55:26] [INFO] [pipeline:run_pipeline] - 
+======================================================================
+[2026-05-26 06:55:26] [INFO] [pipeline:run_pipeline] - OUTER LOOP — Iteration 5/5
+[2026-05-26 06:55:26] [INFO] [pipeline:run_pipeline] - ======================================================================
+[2026-05-26 06:55:26] [INFO] [pipeline:run_pipeline] - [PHASE 2] Code execution attempt 1/4...
+[2026-05-26 06:55:26] [INFO] [pipeline:run_pipeline] - [PHASE 2] Code saved to outputs/run_20260526_064151/03_outer5_inner1_planner_generated_cad_code.py
+[2026-05-26 06:55:26] [INFO] [cad_executor:execute_cad_code] - Setting up local scope for CadQuery execution...
+[2026-05-26 06:55:27] [INFO] [pipeline:run_pipeline] - [PHASE 2] ✅ Solid generated successfully!
+[2026-05-26 06:55:27] [INFO] [pipeline:run_pipeline] - [PHASE 3] Exporting solid to STEP and STL...
+[2026-05-26 06:55:27] [INFO] [pipeline:run_pipeline] - [PHASE 3] ✅ Exported STEP to outputs/run_20260526_064151/04_outer5_exported_model.step
+[2026-05-26 06:55:27] [INFO] [pipeline:run_pipeline] - [PHASE 3] ✅ Exported STL to outputs/run_20260526_064151/04_outer5_exported_model.stl
+[2026-05-26 06:55:27] [INFO] [pipeline:run_pipeline] - [PHASE 4] Running deterministic static checks...
+[2026-05-26 06:55:27] [INFO] [mesh_inspector:run_all_inspections] - Starting comprehensive mesh inspection on outputs/run_20260526_064151/04_outer5_exported_model.stl
+[2026-05-26 06:55:27] [INFO] [mesh_inspector:run_all_inspections] - Checking base stats (watertightness, volume)...
+[2026-05-26 06:55:27] [INFO] [mesh_inspector:count_degenerate_faces] - Executing count_degenerate_faces...
+[2026-05-26 06:55:27] [DEBUG] [mesh_inspector:count_degenerate_faces] - count_degenerate_faces result: 0
+[2026-05-26 06:55:27] [INFO] [mesh_inspector:check_self_intersections] - Executing check_self_intersections...
+[2026-05-26 06:55:27] [DEBUG] [mesh_inspector:check_self_intersections] - check_self_intersections result: {'has_self_intersections': False, 'intersecting_face_count': 0}
+[2026-05-26 06:55:27] [INFO] [mesh_inspector:check_normals_consistency] - Executing check_normals_consistency...
+[2026-05-26 06:55:27] [DEBUG] [mesh_inspector:check_normals_consistency] - check_normals_consistency result: {'normals_consistent': True, 'flipped_regions': 0}
+[2026-05-26 06:55:27] [INFO] [mesh_inspector:check_wall_thickness] - Executing check_wall_thickness with threshold 2.0mm...
+[2026-05-26 06:55:27] [INFO] [mesh_inspector:check_wall_thickness] - Wall thickness stats: raw_min=0.974mm, structural_min=0.974mm, p5=2.222mm, median=24.114mm, artifacts_filtered=0, thin_structural_regions=0
+[2026-05-26 06:55:27] [INFO] [mesh_inspector:check_dimensions_vs_plan] - Executing check_dimensions_vs_plan...
+[2026-05-26 06:55:27] [DEBUG] [mesh_inspector:check_dimensions_vs_plan] - check_dimensions_vs_plan result: {'dimensions': {'x_mm': {'expected': 139.4, 'measured': 124.257, 'delta_mm': 15.143, 'tolerance_mm': 15, 'passed': False}, 'y_mm': {'expected': 139.4, 'measured': 127.453, 'delta_mm': 11.947, 'tolerance_mm': 15, 'passed': True}, 'z_mm': {'expected': 73.0, 'measured': 60.0, 'delta_mm': 13.0, 'tolerance_mm': 15, 'passed': True}}, 'all_dimensions_pass': False}
+[2026-05-26 06:55:27] [INFO] [mesh_inspector:run_all_inspections] - Inspection complete. Overall Validity: False
+[2026-05-26 06:55:27] [WARNING] [mesh_inspector:run_all_inspections] - HARD FAILURE: Dimension x_mm: expected 139.4mm, measured 124.257mm (delta 15.143mm)
+[2026-05-26 06:55:27] [INFO] [mesh_inspector:run_all_inspections] - Saved inspection JSON report to outputs/run_20260526_064151/05_outer5_static_inspection_ground_truth.json
+[2026-05-26 06:55:27] [WARNING] [pipeline:run_pipeline] - [PHASE 4] ❌ Static checks found 1 hard failure(s):
+[2026-05-26 06:55:27] [WARNING] [pipeline:run_pipeline] -   → Dimension x_mm: expected 139.4mm, measured 124.257mm (delta 15.143mm)
+[2026-05-26 06:55:27] [ERROR] [pipeline:run_pipeline] - [PHASE 4] Max outer retries exhausted with static failures.

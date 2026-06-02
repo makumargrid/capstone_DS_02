@@ -1,0 +1,37 @@
+<!doctype html><html><head><meta charset=utf-8><title>Run · Geometry Agent Harness</title>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<link rel=stylesheet href="/ui/static/style.css"></head><body>
+<header><h1><a href="/ui/index.html">◇ Harness</a> · <span id=rid></span></h1>
+ <span id=state class="badge">connecting…</span></header>
+<nav class=tabs>
+ <button data-tab=summary class=active>Summary</button>
+ <button data-tab=edit>3D &amp; Edit</button>
+ <button data-tab=actions>Actions</button>
+</nav>
+<main>
+	 <div id=summary class=panel>
+	   <div id=questionPanel class="question hidden">
+	     <h3>Planner question</h3>
+	     <div id=questionText></div>
+	     <textarea id=questionAnswer rows=2 placeholder="Answer the planner so the run can continue"></textarea>
+	     <button id=sendAnswer>Send answer</button>
+	     <div id=questionMsg class=msg></div>
+	   </div>
+	   <div id=errPanel class="errbox hidden"></div>
+   <h3>Live log</h3>
+   <pre id=log class=log>connecting…</pre>
+   <h3>Report</h3>
+   <iframe id=reportFrame title=report class=hidden></iframe>
+   <div id=reportWait class=wait>The full report appears here when the run finishes.</div>
+ </div>
+ <div id=edit class="panel hidden"><iframe id=viewerFrame title=viewer class=hidden></iframe><div id=editWait class=wait>3D editor appears once the run produces an APPROVED, editable model.</div></div>
+ <div id=actions class="panel hidden">
+   <div class=card><h2>Iterate</h2><p>Send revision feedback — starts a new linked run.</p>
+     <textarea id=feedback rows=3 placeholder="e.g. make the blades thicker / fewer bolts / taller hub"></textarea>
+     <button id=iterate>Iterate</button></div>
+   <div class=card><h2>Acceptance</h2><p>Your judgment on the finished design (APPROVED by harness ≠ ACCEPTED by you).</p>
+     <button id=accept class=ok>Accept</button> <button id=reject class=bad>Reject</button>
+     <div id=actMsg class=msg></div></div>
+ </div>
+</main>
+<script src="/ui/static/run.js"></script></body></html>

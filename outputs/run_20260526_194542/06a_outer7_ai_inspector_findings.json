@@ -1,0 +1,159 @@
+{
+    "checks": [
+        {
+            "check_name": "Hub Base Diameter (Z=0)",
+            "measured": 104.716,
+            "expected": 100.0,
+            "tolerance": 5.0,
+            "passed": true,
+            "unit": "mm",
+            "reason": "Max radial extent of vertices at base Z-band [Z_min, Z_min+3 mm] = 104.72 mm. Slightly above the 100 mm design diameter; within \u00b15 mm tolerance. The small excess may be from mesh triangulation at the base edge."
+        },
+        {
+            "check_name": "Hub Top Diameter (Z=60)",
+            "measured": 57.051,
+            "expected": 30.0,
+            "tolerance": 5.0,
+            "passed": false,
+            "unit": "mm",
+            "reason": "Max radial extent at Z-band [Z_min+57, Z_min+63] = 57.05 mm. This is nearly double the 30 mm design value. The hub top outer diameter is substantially larger than specified \u2014 blades appear to extend significantly at that height rather than tapering to the 15 mm hub radius."
+        },
+        {
+            "check_name": "Total Model Height (Z extent)",
+            "measured": 68.0,
+            "expected": 68.0,
+            "tolerance": 2.0,
+            "passed": true,
+            "unit": "mm",
+            "reason": "Mesh spans Z=[\u22124.0, 64.0], total height = 68 mm. Hub cone design is 60 mm; the additional 8 mm is attributable to blade tips extending above the hub top. Consistent with baseline report."
+        },
+        {
+            "check_name": "Hub Cone Height (Z_min to Z_min+60)",
+            "measured": 60.0,
+            "expected": 60.0,
+            "tolerance": 2.0,
+            "passed": true,
+            "unit": "mm",
+            "reason": "Hub truncated cone nominally occupies 60 mm of Z range. Model Z span is 68 mm, with 60 mm core hub height confirmed by radial taper geometry."
+        },
+        {
+            "check_name": "Central Bore Diameter (Z-axis, design: 15 mm)",
+            "measured": 14.621,
+            "expected": 15.0,
+            "tolerance": 2.0,
+            "passed": true,
+            "unit": "mm",
+            "reason": "36 radial rays fired outward from 1 mm off center at Z=Z_min+30. Average inner-wall radius = 7.31 mm \u2192 avg diameter = 14.62 mm (range: min=10.28 mm, max=19.72 mm). Average is within \u00b12 mm of 15 mm target. The large min/max spread (10.28\u201319.72 mm) indicates the bore may not be perfectly cylindrical \u2014 some rays intersect blade/hub geometry rather than a clean bore wall."
+        },
+        {
+            "check_name": "Number of Blades (design: 7)",
+            "measured": 4,
+            "expected": 7,
+            "tolerance": null,
+            "passed": false,
+            "unit": "count",
+            "reason": "Angular clustering of vertices beyond estimated hub surface radius at Z\u2248Z_min+20 mm yielded only 4 distinct blade clusters. At Z_mid+30 mm, 5 clusters detected. At Z_low+5 mm, 6 clusters; at Z_high+55 mm, 5 clusters. The consistent undercount (4\u20136 vs 7 expected) suggests either the model has fewer than 7 blades, or blade geometry is continuous/merged in ways that prevent clean separation at these sampling levels."
+        },
+        {
+            "check_name": "Blade Protrusion at Base \u2014 radial (design: 15 mm off hub surface)",
+            "measured": 2.358,
+            "expected": 15.0,
+            "tolerance": 5.0,
+            "passed": false,
+            "unit": "mm",
+            "reason": "Max radius at Z\u2248Z_min+2 mm = 52.36 mm; hub base radius = 50.0 mm \u2192 measured protrusion = 2.36 mm. This is 12.6 mm less than the design's 15 mm blade protrusion at the base. Blades at the base barely extend beyond the hub cone."
+        },
+        {
+            "check_name": "Blade Protrusion at Top \u2014 radial (design: 5 mm off hub surface)",
+            "measured": 13.526,
+            "expected": 5.0,
+            "tolerance": 5.0,
+            "passed": false,
+            "unit": "mm",
+            "reason": "Max radius at Z\u2248Z_min+58 mm = 28.53 mm; hub cone top radius = 15.0 mm \u2192 measured protrusion = 13.53 mm. This is 8.5 mm more than the 5 mm design protrusion at the top. The blade protrusion taper is inverted relative to specification: blades protrude more at the top than at the base."
+        },
+        {
+            "check_name": "Blade Twist Angle Z-bottom to Z-top (design: ~60\u00b0)",
+            "measured": "N/A",
+            "expected": 60.0,
+            "tolerance": 30.0,
+            "passed": false,
+            "unit": "degrees",
+            "reason": "Blade cluster counts differ between Z-low (6 clusters) and Z-high (5 clusters), preventing direct 1-to-1 centroid pairing across the full height. The twist angle could not be reliably computed. The unequal blade cluster counts further support the finding that blade geometry does not match the 7-blade uniform design."
+        },
+        {
+            "check_name": "Blade Angular Spacing at Mid-Z (design: 360\u00b0/7 \u2248 51.4\u00b0)",
+            "measured": 72.0,
+            "expected": 51.43,
+            "tolerance": 15.0,
+            "passed": false,
+            "unit": "degrees",
+            "reason": "5 blade clusters detected at Z_mid; average angular spacing = 72.0\u00b0. Expected 51.4\u00b0 for 7 evenly-spaced blades. The 72\u00b0 spacing is consistent with a 5-blade arrangement (360\u00b0/5 = 72\u00b0), not 7 blades."
+        },
+        {
+            "check_name": "Bounding Box X (design: 130 mm \u00b115)",
+            "measured": 121.197,
+            "expected": 130.0,
+            "tolerance": 15.0,
+            "passed": true,
+            "unit": "mm",
+            "reason": "X extent = 121.197 mm, within the \u00b115 mm tolerance band around 130 mm."
+        },
+        {
+            "check_name": "Bounding Box Y (design: 130 mm \u00b115)",
+            "measured": 124.314,
+            "expected": 130.0,
+            "tolerance": 15.0,
+            "passed": true,
+            "unit": "mm",
+            "reason": "Y extent = 124.314 mm, within the \u00b115 mm tolerance band around 130 mm."
+        },
+        {
+            "check_name": "Bounding Box Z (design: 72 mm \u00b115)",
+            "measured": 68.0,
+            "expected": 72.0,
+            "tolerance": 15.0,
+            "passed": true,
+            "unit": "mm",
+            "reason": "Z extent = 68.0 mm, within the \u00b115 mm tolerance band around 72 mm."
+        },
+        {
+            "check_name": "FDM Overhang Area >45\u00b0 from horizontal",
+            "measured": 21.16,
+            "expected": "< 20%",
+            "tolerance": null,
+            "passed": false,
+            "unit": "% of total surface",
+            "reason": "21.16% of total surface area has downward-facing normals with angle >45\u00b0 from horizontal; 21.16% also qualifies as severe (>60\u00b0). This exceeds the typical 20% guideline for FDM printability without support structures. The blade sweep geometry generates significant downward-facing surfaces that will require print supports."
+        },
+        {
+            "check_name": "Min Wall Thickness \u2014 blade regions (design: 2 mm)",
+            "measured": 0.05,
+            "expected": 2.0,
+            "tolerance": null,
+            "passed": false,
+            "unit": "mm",
+            "reason": "Ray-cast through-thickness on 267 blade-region face samples. 262/267 samples (98.1%) measured below 2 mm; min detected = 0.05 mm (likely a ray-cast artifact where the ray immediately re-hits the same face). The near-zero measurements indicate the blade walls are either extremely thin or the blade geometry is essentially a single surface shell rather than a proper solid with 2 mm thickness. This is a critical FDM printability concern."
+        },
+        {
+            "check_name": "Bore Inner Wall Geometry Present at Base",
+            "measured": 131,
+            "expected": "> 0",
+            "tolerance": null,
+            "passed": true,
+            "unit": "vertex count within r<8 mm at base",
+            "reason": "131 vertices exist within r<8 mm of the Z-axis at the base Z-band, confirming bore inner-wall geometry is present at the bottom. At Z=Z_min+60 (top), 0 vertices found within r<8 mm \u2014 the bore may not be present/open at the top of the hub."
+        }
+    ],
+    "anomalies": [
+        "Mesh Z origin is at Z=\u22124.0 (not Z=0 as implied by the design brief). The design references Z=0 for the base and Z=60 for the top, but the actual mesh sits at Z=[\u22124, 64]. This 4 mm offset was accounted for in all measurements.",
+        "Blade cluster counts are inconsistent across Z heights: 4 clusters at Z+20, 5 clusters at Z+30 and Z+55, 6 clusters at Z+5. The expected 7 blades were never detected at any Z level. This points to a fundamental blade count error in the model.",
+        "Blade protrusion profile is inverted: at the base, blades protrude only ~2.4 mm (design: 15 mm); at the top, blades protrude ~13.5 mm (design: 5 mm). The taper direction is opposite to specification.",
+        "Hub top diameter at Z\u224860 mm measures 57.05 mm (design: 30 mm), more than 90% larger than specified. This is likely caused by the incorrectly large blade protrusion at the top dominating the radial extent.",
+        "Bore geometry is only present at the base (131 vertices within r<8 mm); zero vertices found within r<8 mm at the top of the hub (Z\u224860 mm), suggesting the bore may be closed or missing at the top.",
+        "The bore ray-cast measurements show a wide spread (min diameter 10.28 mm, max 19.72 mm across 36 rays), indicating the inner bore surface is not a clean cylinder \u2014 possibly affected by blade-hub intersection geometry.",
+        "Wall thickness measurements show 98.1% of blade-face samples below 2 mm. This strongly suggests the blades are modeled as very thin surfaces (< 2 mm actual wall thickness) rather than proper 2 mm thick solids as specified."
+    ],
+    "engineer_summary": "The impeller mesh passes overall bounding-box (X/Y/Z within \u00b115 mm), total height (68 mm), and bore average diameter (~14.6 mm \u2248 15 mm target) checks. However, it fails multiple critical feature checks: only 4\u20136 blade clusters are detectable at any Z level (design requires 7); the blade protrusion taper is inverted (2.4 mm at base vs 15 mm spec; 13.5 mm at top vs 5 mm spec); the hub top diameter is 57 mm instead of 30 mm; blade walls measure below 2 mm in 98% of samples (minimum wall thickness requirement violated); and 21% of the surface area has overhangs >45\u00b0 (FDM support structures will be required). The blade count error, inverted protrusion profile, and sub-minimum wall thickness are the most significant non-conformances.",
+    "confidence": "MEDIUM"
+}

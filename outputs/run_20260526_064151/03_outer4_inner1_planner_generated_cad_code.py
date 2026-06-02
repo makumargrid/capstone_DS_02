@@ -1,0 +1,130 @@
+import cadquery as cq
+import math
+
+# ══════════════════════════════════════════════
+# ALL PARAMETERS — pre-computed into plain floats
+# ══════════════════════════════════════════════
+hub_base_r  = float(50.0)   # cone base radius at Z=0  (mm)
+hub_top_r   = float(15.0)   # cone top radius at Z=60  (mm)
+hub_h       = float(60.0)   # hub height                (mm)
+bore_r      = float(7.5)    # shaft bore radius         (mm)
+n_blades    = int(7)        # number of blades
+twist_deg   = float(60.0)   # total blade twist         (degrees)
+blade_t     = float(2.66)   # blade thickness — increased 1.33x for DFM (was 2.0mm)
+blade_h_bot = float(22.0)   # protrusion at base        (mm)
+blade_h_top = float(6.5)    # protrusion at top         (mm)
+n_stations  = int(24)       # loft stations per blade
+embed       = float(1.0)    # embed depth into cone     (mm)
+
+# Pre-computed derived values — all plain floats, no globals in CQ chains
+bore_extrude_h  = hub_h + 2.0          # = 62.0
+bore_offset_z   = -1.0                 # bore starts 1mm below Z=0
+angle_step_rad  = 2.0 * math.pi / float(n_blades)
+twist_rad_total = math.radians(twist_deg)
+
+# ══════════════════════════════════════════════
+# 1. HUB — truncated cone via revolve
+#    Profile in XZ plane: X=radius, Z=height
+# ══════════════════════════════════════════════
+_hub_pts = [
+    (hub_base_r, 0.0),
+    (hub_top_r,  hub_h),
+    (0.0,        hub_h),
+    (0.0,        0.0),
+]
+
+hub_wp = cq.Workplane("XZ")
+hub_wp = hub_wp.polyline(_hub_pts)
+hub_wp = hub_wp.close()
+hub_solid = hub_wp.revolve(360, (0, 0, 0), (0, 1, 0))
+
+# ══════════════════════════════════════════════
+# 2. BORE — cylindrical cut for driveshaft
+#    15mm diameter (7.5mm radius), full height + 2mm overcut
+# ══════════════════════════════════════════════
+bore_wp = cq.Workplane("XY")
+bore_wp = bore_wp.circle(bore_r)
+bore_wp = bore_wp.extrude(bore_extrude_h)
+bore_solid = bore_wp.translate((0.0, 0.0, bore_offset_z))
+
+hub_solid = hub_solid.cut(bore_solid)
+
+# ══════════════════════════════════════════════
+# 3. BLADE WIRE FUNCTION
+#    Flat horizontal rectangle at each Z station:
+#      inner radius = r_cone - embed  (dips into hub for watertight union)
+#      outer radius = r_cone + h_prot (protrudes radially outward)
+#      tangential width = blade_t
+#    All parameters passed as default args to avoid any global scope issues
+# ══════════════════════════════════════════════
+def make_blade_wire(z_frac, blade_rot_rad,
+                    _hub_base_r=hub_base_r,
+                    _hub_top_r=hub_top_r,
+                    _hub_h=hub_h,
+                    _blade_h_bot=blade_h_bot,
+                    _blade_h_top=blade_h_top,
+                    _blade_t=blade_t,
+                    _embed=embed,
+                    _bore_r=bore_r,
+                    _twist_rad_total=twist_rad_total):
+
+    # Interpolated geometry at this station
+    z_pos  = z_frac * _hub_h
+    r_cone = _hub_base_r + (_hub_top_r - _hub_base_r) * z_frac   # linear taper
+    h_prot = _blade_h_bot + (_blade_h_top - _blade_h_bot) * z_frac  # linear taper
+
+    # Angular position = aerodynamic twist + blade index offset
+    theta  = _twist_rad_total * z_frac + blade_rot_rad
+
+    # Radial extent
+    r_inner = r_cone - _embed
+    if r_inner < _bore_r + 1.0:
+        r_inner = _bore_r + 1.0
+    r_outer = r_cone + h_prot
+
+    # Tangential half-width (increased for DFM)
+    ht = _blade_t * 0.5
+
+    # Radial unit vector at angle theta
+    cos_t   =  math.cos(theta)
+    sin_t   =  math.sin(theta)
+    # Tangential unit vector (90° CCW from radial)
+    tan_cos = -math.sin(theta)
+    tan_sin =  math.cos(theta)
+
+    # Four corners of rectangular cross-section (flat at z_pos)
+    # Winding: inner-left → inner-right → outer-right → outer-left
+    p0 = cq.Vector(r_inner*cos_t + ht*tan_cos,  r_inner*sin_t + ht*tan_sin,  z_pos)
+    p1 = cq.Vector(r_inner*cos_t - ht*tan_cos,  r_inner*sin_t - ht*tan_sin,  z_pos)
+    p2 = cq.Vector(r_outer*cos_t - ht*tan_cos,  r_outer*sin_t - ht*tan_sin,  z_pos)
+    p3 = cq.Vector(r_outer*cos_t + ht*tan_cos,  r_outer*sin_t + ht*tan_sin,  z_pos)
+
+    e0 = cq.Edge.makeLine(p0, p1)
+    e1 = cq.Edge.makeLine(p1, p2)
+    e2 = cq.Edge.makeLine(p2, p3)
+    e3 = cq.Edge.makeLine(p3, p0)
+
+    wire = cq.Wire.assembleEdges([e0, e1, e2, e3])
+    return wire
+
+# ══════════════════════════════════════════════
+# 4. BUILD ALL 7 BLADES AND UNION WITH HUB
+# ══════════════════════════════════════════════
+result_solid = hub_solid
+
+for k in range(n_blades):
+    rot_rad = float(k) * angle_step_rad
+
+    # Build wire list for this blade (N_STATIONS+1 cross-sections)
+    wire_list = []
+    for i in range(n_stations + 1):
+        frac = float(i) / float(n_stations)
+        w = make_blade_wire(frac, rot_rad)
+        wire_list.append(w)
+
+    # Loft into solid (ruled=True: linear interpolation, avoids OCC smoothing artifacts)
+    blade_solid = cq.Solid.makeLoft(wire_list, ruled=True)
+
+    # Wrap in Workplane for boolean union
+    blade_shell = cq.Workplane("XY").add(blade_solid)
+    result_solid = result_solid.union(blade_shell)

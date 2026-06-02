@@ -1,0 +1,153 @@
+{
+  "_comment": "Manufacturing process knowledge base for the agentic CAD pipeline. Each process defines DFM constraints that drive the mesh inspector checks, feedback messages, and planner system prompt injection.",
+  "_default": "FDM",
+
+  "FDM": {
+    "full_name": "Fused Deposition Modeling (FDM / FFF 3D Printing)",
+    "min_wall_mm": 2.0,
+    "min_feature_mm": 0.5,
+    "min_hole_diameter_mm": 1.5,
+    "max_overhang_deg": 45,
+    "requires_supports": true,
+    "typical_tolerance_mm": 0.5,
+    "max_bridge_span_mm": 30,
+    "dfm_rules": [
+      "Minimum wall thickness: 2.0mm (5x standard 0.4mm nozzle diameter for structural strength)",
+      "Overhangs exceeding 45° from horizontal require support material or bridging",
+      "Horizontal spans (bridges) over 30mm will sag without support",
+      "Minimum hole diameter 1.5mm — smaller holes collapse during printing",
+      "Avoid sharp internal corners — use fillets ≥0.5mm to prevent stress concentration and layer delamination",
+      "Layer height 0.1–0.3mm; feature detail below 0.2mm will not resolve"
+    ],
+    "failure_guidance": {
+      "thin_wall": "Increase the wall thickness parameter. FDM requires ≥2.0mm for structural integrity with a 0.4mm nozzle. Thinner walls result in single-extrusion walls with poor layer adhesion.",
+      "not_watertight": "All FDM parts must be watertight solid meshes for the slicer to compute infill correctly. Fix boolean operations: embed sub-features 2mm into the parent body before union/fuse.",
+      "overhang": "Add support structures or redesign the geometry to stay within 45° overhang angle from vertical."
+    },
+    "system_prompt_rules": "This part will be manufactured using FDM 3D printing (e.g., PLA, ABS, PETG with a 0.4mm nozzle).\n  - MINIMUM WALL: 2.0mm everywhere, no exceptions. Thinner walls fail to print.\n  - OVERHANGS: Keep all overhangs ≤45° from horizontal, or plan for support material.\n  - BRIDGES: Horizontal spans >30mm need support below.\n  - HOLES: Minimum 1.5mm diameter. Smaller holes will close during printing.\n  - FILLETS: Use ≥0.5mm fillets on all sharp internal corners.",
+    "keywords": ["print", "fdm", "fff", "3d print", "additive", "pla", "abs", "petg", "nylon", "tpu", "layer", "extrude", "filament", "prototype"]
+  },
+
+  "SLA": {
+    "full_name": "Stereolithography / Resin Printing (SLA / DLP / MSLA)",
+    "min_wall_mm": 0.5,
+    "min_feature_mm": 0.2,
+    "min_hole_diameter_mm": 0.5,
+    "max_overhang_deg": 50,
+    "requires_supports": true,
+    "typical_tolerance_mm": 0.1,
+    "dfm_rules": [
+      "Minimum wall thickness: 0.5mm — thinner walls may warp or break during post-processing",
+      "Hollow parts must have drain holes ≥3mm to allow uncured resin to escape",
+      "Large flat surfaces perpendicular to build direction cause suction cup forces — add reliefs",
+      "Overhangs >50° need support; minimize support contact points for cleaner surfaces",
+      "Post-cure shrinkage ~0.5–2% depending on resin — account for in precision features"
+    ],
+    "failure_guidance": {
+      "thin_wall": "Increase wall thickness to ≥0.5mm. Resin walls thinner than 0.5mm are fragile and prone to warping during UV post-cure.",
+      "not_watertight": "Ensure the model is a watertight manifold. Open meshes cause resin to pool inside and fail to cure properly."
+    },
+    "system_prompt_rules": "This part will be manufactured using SLA/DLP resin printing.\n  - MINIMUM WALL: 0.5mm (thinner walls are fragile post-cure).\n  - HOLLOW PARTS: Include ≥3mm drain holes for uncured resin escape.\n  - OVERHANGS: Keep ≤50° from horizontal or use supports.\n  - PRECISION: Typical tolerance ±0.1mm — suitable for detailed miniatures and dental/medical prototypes.",
+    "keywords": ["resin", "sla", "dlp", "msla", "photopolymer", "uv cure", "vat", "castable", "dental", "jewelry", "miniature"]
+  },
+
+  "SLS": {
+    "full_name": "Selective Laser Sintering (SLS / Powder Bed Fusion)",
+    "min_wall_mm": 0.7,
+    "min_feature_mm": 0.5,
+    "min_hole_diameter_mm": 1.5,
+    "max_overhang_deg": null,
+    "requires_supports": false,
+    "typical_tolerance_mm": 0.3,
+    "dfm_rules": [
+      "Minimum wall thickness: 0.7mm — thinner walls may not fully sinter and lack strength",
+      "No support structures needed — unsintered powder supports overhangs",
+      "Minimum clearance between moving parts: 0.5mm (powder can fuse thin gaps)",
+      "Hollow parts should have powder escape holes ≥5mm to remove unsintered powder",
+      "Nylon (PA12) SLS parts have ~3% linear shrinkage — account for in precision features",
+      "Wall thickness uniformity important to prevent warping during cool-down"
+    ],
+    "failure_guidance": {
+      "thin_wall": "Increase wall thickness to ≥0.7mm. Thin SLS walls may not fully sinter, resulting in weak, porous structure.",
+      "not_watertight": "Watertight manifold required for slicer/sinter path generation. Fix boolean operations."
+    },
+    "system_prompt_rules": "This part will be manufactured using SLS (Selective Laser Sintering / Powder Bed Fusion), typically Nylon PA12.\n  - MINIMUM WALL: 0.7mm everywhere.\n  - NO SUPPORTS NEEDED: Powder bed supports all overhangs. Design freely.\n  - CLEARANCES: Gaps between parts must be ≥0.5mm to prevent powder fusion.\n  - ESCAPE HOLES: Hollow volumes need ≥5mm holes for powder removal.\n  - SHRINKAGE: ~3% linear — scale up features requiring tight tolerances.",
+    "keywords": ["sls", "sinter", "powder", "nylon", "pa12", "pa11", "laser sintering", "powder bed", "eos", "fuse"]
+  },
+
+  "CNC": {
+    "full_name": "CNC Machining (Milling / Turning)",
+    "min_wall_mm": 0.5,
+    "min_feature_mm": 0.8,
+    "min_hole_diameter_mm": 0.5,
+    "max_overhang_deg": null,
+    "requires_supports": false,
+    "typical_tolerance_mm": 0.05,
+    "dfm_rules": [
+      "Minimum feature size limited by smallest available end mill (typically 0.5–1mm)",
+      "All internal corners must have radius ≥ tool radius (min ~0.5mm)",
+      "Tall thin walls (height:thickness > 3:1) vibrate and chatter during machining",
+      "Deep pockets require tool clearance — avoid features deeper than 3× tool diameter",
+      "Undercuts require special tooling or multi-axis setup",
+      "All surfaces must be accessible by the cutting tool from at least one direction"
+    ],
+    "failure_guidance": {
+      "thin_wall": "Increase wall thickness to avoid vibration/chatter. For CNC, walls taller than 3× their thickness require special fixturing. Minimum practical wall: 0.5mm for metals, 1.0mm for plastics.",
+      "not_watertight": "Watertight mesh required for CAM toolpath generation. Fix self-intersecting or non-manifold geometry."
+    },
+    "system_prompt_rules": "This part will be manufactured using CNC machining (milling or turning), likely from aluminum, steel, or engineering plastic.\n  - MINIMUM FEATURE: 0.8mm (smallest practical end mill diameter).\n  - INTERNAL CORNERS: Must have radius ≥0.5mm (tool radius). Sharp internal corners are impossible to machine.\n  - WALL STABILITY: Avoid walls taller than 3× their thickness without additional ribbing.\n  - TOLERANCES: CNC achieves ±0.05mm — precision features are feasible.\n  - NO OVERHANGS: Undercuts require 5-axis machining or special fixturing.",
+    "keywords": ["cnc", "machining", "mill", "turning", "lathe", "aluminum", "aluminium", "steel", "metal", "brass", "titanium", "machined", "precision", "billet", "subtractive"]
+  },
+
+  "INJECTION_MOLDING": {
+    "full_name": "Injection Molding (Thermoplastic)",
+    "min_wall_mm": 1.0,
+    "min_feature_mm": 0.5,
+    "min_hole_diameter_mm": 1.0,
+    "max_overhang_deg": null,
+    "requires_supports": false,
+    "typical_tolerance_mm": 0.15,
+    "draft_angle_deg": 2,
+    "max_wall_ratio": 3.0,
+    "dfm_rules": [
+      "Draft angles of 1–3° required on ALL vertical surfaces for part ejection from mold",
+      "Uniform wall thickness (within ±60% variation) to prevent sink marks and warping",
+      "Minimum wall thickness 1.0mm (varies by material — ABS: 1.2–3.5mm, PP: 0.8–3.8mm)",
+      "Avoid sharp corners — use fillets ≥ 0.5× wall thickness to prevent stress concentration",
+      "Undercuts require side-actions or lifters (expensive tooling — avoid if possible)",
+      "Minimum hole diameter 1.0mm; through-holes preferred over blind holes",
+      "Ribs for stiffness: rib height ≤3× wall thickness, rib width = 0.5–0.7× wall thickness"
+    ],
+    "failure_guidance": {
+      "thin_wall": "Increase wall thickness to ≥1.0mm. For injection molding, thin walls cause short shots (incomplete fill) and structural weakness. Use uniform wall thickness throughout.",
+      "not_watertight": "Watertight manifold required for mold flow simulation and tooling design. Fix boolean operations."
+    },
+    "system_prompt_rules": "This part will be manufactured using injection molding (thermoplastic).\n  - DRAFT ANGLES: ALL vertical surfaces need 1–3° draft for mold release. This is mandatory.\n  - MINIMUM WALL: 1.0mm (ABS/Nylon typical: 1.5–3.0mm for best results).\n  - WALL UNIFORMITY: Keep wall thickness variation within ±60% to prevent sink marks.\n  - NO UNDERCUTS: Avoid features that would trap in the mold without side-actions.\n  - FILLETS: All sharp corners need ≥0.5mm fillet to prevent stress cracking at gates.",
+    "keywords": ["injection", "molding", "moulding", "mold", "mould", "tooling", "mass production", "thermoplastic", "abs injection", "pp injection"]
+  },
+
+  "CASTING": {
+    "full_name": "Metal Casting (Sand Casting / Investment Casting / Die Casting)",
+    "min_wall_mm": 3.0,
+    "min_feature_mm": 1.5,
+    "min_hole_diameter_mm": 3.0,
+    "max_overhang_deg": null,
+    "requires_supports": false,
+    "typical_tolerance_mm": 0.5,
+    "draft_angle_deg": 3,
+    "dfm_rules": [
+      "Minimum wall thickness 3.0mm for sand casting (2.0mm for investment casting)",
+      "Draft angles 2–5° on all surfaces pulled from the mold/pattern",
+      "Uniform wall thickness to ensure even solidification and prevent porosity",
+      "Avoid sharp corners — use generous fillets (≥3mm) to prevent hot tears",
+      "Core prints needed for internal cavities",
+      "Machining stock allowance of 2–5mm on surfaces requiring precise dimensions"
+    ],
+    "failure_guidance": {
+      "thin_wall": "Increase wall thickness to ≥3.0mm. Casting requires thick walls for metal flow and structural integrity. Thin sections cause cold shuts and misruns.",
+      "not_watertight": "Watertight mesh required for pattern making and mold fill simulation."
+    },
+    "system_prompt_rules": "This part will be manufactured using metal casting (sand, investment, or die casting).\n  - MINIMUM WALL: 3.0mm (investment casting: 2.0mm minimum).\n  - DRAFT ANGLES: 2–5° on all surfaces for pattern withdrawal.\n  - FILLETS: Use generous fillets (≥3mm) at all corners to prevent hot tears.\n  - UNIFORM WALL: Avoid abrupt section changes — use gradual tapers.\n  - MACHINING STOCK: Add 2–5mm extra on surfaces that will be machined after casting.",
+    "keywords": ["casting", "cast", "foundry", "sand cast", "investment cast", "die cast", "metal pour", "aluminum casting", "iron casting"]
+  }
+}

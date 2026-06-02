@@ -1,0 +1,11 @@
+[2026-05-26 17:33:21] [INFO] [pipeline:run_pipeline] - ======================================================================
+[2026-05-26 17:33:21] [INFO] [pipeline:run_pipeline] - ADVERSARIAL MULTI-AGENT CAD PIPELINE
+[2026-05-26 17:33:21] [INFO] [pipeline:run_pipeline] - ======================================================================
+[2026-05-26 17:33:21] [INFO] [pipeline:run_pipeline] - Output directory: outputs/run_20260526_173321
+[2026-05-26 17:33:21] [INFO] [pipeline:run_pipeline] - Interactive mode: True
+[2026-05-26 17:33:21] [INFO] [pipeline:run_pipeline] - Prompt: Create a complex Centrifugal Compressor Impeller. 1. The main hub is a truncated cone with a base diameter of 100mm (at Z=0), a top diameter of 30mm (at Z=60), and a total height of 60mm. 2. The hub h...
+[2026-05-26 17:33:21] [INFO] [pipeline:run_pipeline] - [INIT] Detecting manufacturing process from prompt...
+[2026-05-26 17:33:21] [INFO] [process_detector:detect_process] - [PROCESS_DETECT] Keyword match → 'FDM' (scores: {'FDM': 2})
+[2026-05-26 17:33:21] [INFO] [process_detector:load_profile] - [PROCESS_DETECT] Loaded profile: Fused Deposition Modeling (FDM / FFF 3D Printing) (min_wall=2.0mm, tolerance=±0.5mm)
+[2026-05-26 17:33:21] [INFO] [pipeline:run_pipeline] - [INIT] Process: Fused Deposition Modeling (FDM / FFF 3D Printing) | min_wall=2.0mm | tolerance=±0.5mm
+[2026-05-26 17:33:21] [INFO] [pipeline:run_pipeline] - [INIT] Initializing Planner Agent with persistent session...

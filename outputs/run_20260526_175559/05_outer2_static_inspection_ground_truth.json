@@ -1,0 +1,84 @@
+{
+    "base_stats": {
+        "is_watertight": true,
+        "volume_mm3": 231602.36
+    },
+    "degenerate_faces": 0,
+    "self_intersections": {
+        "has_self_intersections": true,
+        "intersecting_face_count": 844
+    },
+    "normals_consistency": {
+        "normals_consistent": false,
+        "flipped_regions": 84
+    },
+    "wall_thickness": {
+        "raw_min_wall_thickness_mm": 0.0,
+        "min_wall_thickness_mm": 1.56,
+        "p5_wall_thickness_mm": 3.442,
+        "median_wall_thickness_mm": 9.522,
+        "thin_region_count": 26,
+        "artifact_count": 14,
+        "total_samples": 1000,
+        "passes_minimum": true,
+        "thin_regions_sample": [
+            {
+                "face_id": 0,
+                "thickness_mm": 1.779,
+                "face_center_z_mm": 0.9
+            },
+            {
+                "face_id": 2,
+                "thickness_mm": 1.772,
+                "face_center_z_mm": 0.9
+            },
+            {
+                "face_id": 25,
+                "thickness_mm": 1.69,
+                "face_center_z_mm": 0.9
+            },
+            {
+                "face_id": 26,
+                "thickness_mm": 1.778,
+                "face_center_z_mm": 0.9
+            },
+            {
+                "face_id": 28,
+                "thickness_mm": 1.774,
+                "face_center_z_mm": 0.9
+            }
+        ]
+    },
+    "dimensions_check": {
+        "dimensions": {
+            "x_mm": {
+                "expected": 160.4,
+                "measured": 153.061,
+                "delta_mm": 7.339,
+                "tolerance_mm": 15,
+                "passed": true
+            },
+            "y_mm": {
+                "expected": 160.4,
+                "measured": 156.998,
+                "delta_mm": 3.402,
+                "tolerance_mm": 15,
+                "passed": true
+            },
+            "z_mm": {
+                "expected": 71.5,
+                "measured": 62.519,
+                "delta_mm": 8.981,
+                "tolerance_mm": 15,
+                "passed": true
+            }
+        },
+        "all_dimensions_pass": true
+    },
+    "overall_valid": false,
+    "hard_failures": [
+        "Mesh has 844 self-intersecting faces",
+        "Mesh has 84 flipped/inconsistent normal regions"
+    ],
+    "soft_failures": []
+}

@@ -1,0 +1,83 @@
+{
+    "base_stats": {
+        "is_watertight": true,
+        "volume_mm3": 223633.32
+    },
+    "degenerate_faces": 0,
+    "self_intersections": {
+        "has_self_intersections": false,
+        "intersecting_face_count": 0
+    },
+    "normals_consistency": {
+        "normals_consistent": true,
+        "flipped_regions": 0
+    },
+    "wall_thickness": {
+        "raw_min_wall_thickness_mm": 0.784,
+        "min_wall_thickness_mm": 0.784,
+        "p5_wall_thickness_mm": 2.157,
+        "median_wall_thickness_mm": 60.0,
+        "thin_region_count": 12,
+        "artifact_count": 0,
+        "total_samples": 1000,
+        "passes_minimum": true,
+        "thin_regions_sample": [
+            {
+                "face_id": 566,
+                "thickness_mm": 1.231,
+                "face_center_z_mm": 3.5
+            },
+            {
+                "face_id": 567,
+                "thickness_mm": 1.728,
+                "face_center_z_mm": 3.8
+            },
+            {
+                "face_id": 570,
+                "thickness_mm": 1.052,
+                "face_center_z_mm": 0.0
+            },
+            {
+                "face_id": 571,
+                "thickness_mm": 1.983,
+                "face_center_z_mm": 4.7
+            },
+            {
+                "face_id": 577,
+                "thickness_mm": 1.997,
+                "face_center_z_mm": 5.2
+            }
+        ]
+    },
+    "dimensions_check": {
+        "dimensions": {
+            "x_mm": {
+                "expected": 130.0,
+                "measured": 125.814,
+                "delta_mm": 4.186,
+                "tolerance_mm": 15,
+                "passed": true
+            },
+            "y_mm": {
+                "expected": 130.0,
+                "measured": 127.223,
+                "delta_mm": 2.777,
+                "tolerance_mm": 15,
+                "passed": true
+            },
+            "z_mm": {
+                "expected": 72.0,
+                "measured": 71.987,
+                "delta_mm": 0.013,
+                "tolerance_mm": 15,
+                "passed": true
+            }
+        },
+        "all_dimensions_pass": true
+    },
+    "overall_valid": false,
+    "hard_failures": [],
+    "soft_failures": [
+        "DFM_STRUCTURAL_MIN: structural_min=0.784mm is 61% below 2.0mm target (p5=2.157mm passes, but 12 thin regions exist). Likely boundary-intersection wedge faces at feature-to-surface junctions. Samples: [face 566=1.231mm (Z=3.5mm), face 567=1.728mm (Z=3.8mm), face 570=1.052mm (Z=0.0mm), face 571=1.983mm (Z=4.7mm), face 577=1.997mm (Z=5.2mm)]"
+    ]
+}

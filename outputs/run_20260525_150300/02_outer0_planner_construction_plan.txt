@@ -1,0 +1,430 @@
+CONSTRUCTION PLAN:
+
+## Overview
+Build a centrifugal compressor impeller with a truncated cone hub, central bore, and 7 swept aerodynamic blades.
+
+## Sub-components
+
+### 1. Hub (Truncated Cone)
+- Operation: `revolve` a trapezoidal profile around Z axis
+- Base radius: 50mm at Z=0
+- Top radius: 15mm at Z=60
+- Height: 60mm
+- The side wall slope: (50-15)/60 = 0.583mm/mm → ~30.26° from vertical
+
+### 2. Central Bore
+- Operation: `cut` a cylinder of diameter 15mm (radius 7.5mm) through full height
+- Goes from Z=-1 to Z=61 (slightly oversized to ensure clean cut)
+- Boolean: cut from hub
+
+### 3. Blades (7 total, evenly spaced at 360/7 ≈ 51.43° apart)
+- Each blade is built by **lofting** 2D cross-sections along a 3D path on the cone surface
+- Path: follows the cone surface from base to top, sweeping 60° around Z axis
+- Cross-section: rectangle of 2mm thickness (normal to cone surface) × variable protrusion height
+  - Base: 2mm thick × 15mm protrusion
+  - Top: 2mm thick × 5mm protrusion
+- Strategy: Sample N intermediate cross-sections along the blade path, build each as a solid box oriented to the cone surface normal + tangent direction, then union them all. This avoids complex sweep/loft issues.
+- Alternative cleaner strategy: Build ONE blade using a **loft** of rectangular cross-section workplanes at multiple heights (Z=0, Z=20, Z=40, Z=60), each rotated by the appropriate angular offset and positioned on the cone surface, then rotate copies 7x.
+
+### Blade Detail
+For each height level Zi (0 → 60mm):
+- Cone radius at Zi: r(z) = 50 - (35/60)*z
+- Angular offset at Zi: θ(z) = 60° * (z/60) in radians
+- Cone surface normal direction: the outward+upward normal to the cone
+- The blade protrusion extends along this normal
+- Blade thickness (2mm) is tangential to the cone surface (perpendicular to radial direction)
+
+For the loft approach: place a 2mm × H(z) rectangle on a workplane at each sample point on the cone surface, oriented correctly, then loft through all sections.
+
+### Risk Assessment
+- Lofting twisted cross-sections is the hardest part; CadQuery may fail if sections are non-planar or twisted. Mitigation: use many intermediate sections (5-8), keep them well-spaced.
+- Boolean union of 7 blades with hub — embed blades 1mm into hub surface to avoid coplanar face issues.
+- The cone surface normal calculation must be exact to avoid blade-cone intersections.
+
+### Assembly Order
+1. Build truncated cone hub
+2. Cut central bore
+3. Build single blade via loft of oriented cross-sections
+4. Rotate-copy blade 7 times
+5. Union all blades with hub
+
+---
+
+Now the code:
+
+import cadquery as cq
+import math
+
+# ─────────────────────────────────────────
+# PARAMETERS
+# ─────────────────────────────────────────
+HUB_BASE_R   = 50.0   # mm, radius at Z=0
+HUB_TOP_R    = 15.0   # mm, radius at Z=60
+HUB_H        = 60.0   # mm, total height
+BORE_R       = 7.5    # mm, bore radius (15mm dia)
+N_BLADES     = 7
+BLADE_TWIST  = 60.0   # degrees, total twist bottom to top
+BLADE_THICK  = 2.0    # mm, blade thickness (tangential)
+PROT_BASE    = 15.0   # mm, protrusion at base
+PROT_TOP     = 5.0    # mm, protrusion at top
+N_SECTIONS   = 8      # loft sections per blade
+
+# Cone half-angle from vertical axis
+# tan(alpha) = (HUB_BASE_R - HUB_TOP_R) / HUB_H
+cone_slope = (HUB_BASE_R - HUB_TOP_R) / HUB_H  # dr/dz (negative when going up)
+cone_alpha = math.atan(cone_slope)  # angle of cone wall from vertical
+
+# ─────────────────────────────────────────
+# 1. HUB — truncated cone via revolve
+# ─────────────────────────────────────────
+# Profile in the XZ plane (x=radius, z=height)
+# Revolve around Z axis
+hub_profile = (
+    cq.Workplane("XZ")
+    .moveTo(HUB_BASE_R, 0)
+    .lineTo(HUB_TOP_R, HUB_H)
+    .lineTo(HUB_TOP_R, HUB_H)   # top edge (will close)
+    .lineTo(0, HUB_H)
+    .lineTo(0, 0)
+    .close()
+)
+hub = hub_profile.revolve(360, (0, 0, 0), (0, 0, 1))
+
+# ─────────────────────────────────────────
+# 2. CENTRAL BORE
+# ─────────────────────────────────────────
+bore = (
+    cq.Workplane("XY")
+    .workplane(offset=-1)
+    .circle(BORE_R)
+    .extrude(HUB_H + 2)
+)
+hub = hub.cut(bore)
+
+# ─────────────────────────────────────────
+# 3. BLADE CONSTRUCTION
+# ─────────────────────────────────────────
+# Strategy:
+#   For each of N_SECTIONS evenly spaced along Z (0 → HUB_H),
+#   compute the blade cross-section as a small solid box (extruded rectangle)
+#   placed on the cone surface, oriented correctly.
+#   Then union all boxes to form the blade solid.
+#
+# At height z:
+#   cone_r(z) = HUB_BASE_R - cone_slope * z          (radius of cone surface)
+#   twist_angle(z) = BLADE_TWIST * (z / HUB_H)       (degrees of rotation from blade start)
+#   protrusion(z) = PROT_BASE + (PROT_TOP - PROT_BASE) * (z / HUB_H)
+#
+# The blade cross-section rectangle at height z:
+#   - Width: BLADE_THICK (along circumferential/tangential direction)
+#   - Height (off cone surface): protrusion(z) along the cone surface normal
+#
+# Cone surface outward normal in cylindrical coords:
+#   In the radial plane, the cone wall goes from (r_base,0) to (r_top, H).
+#   The inward normal to that wall (pointing away from cone axis, into the solid) is:
+#     n = (sin(alpha_cone_from_horiz), cos(alpha_cone_from_horiz))
+#   where alpha_cone_from_horiz = atan(H / (r_base - r_top))
+#   The OUTWARD normal (away from cone surface, outward from body) in the rz-plane:
+#     nr = cos(cone_alpha)   (radially outward component)
+#     nz = sin(cone_alpha)   (upward component)
+#   where cone_alpha = atan(dr/dz) — angle of cone wall from vertical.
+
+# For the loft, we'll build intermediate thin "slabs" and union them.
+# Each slab is a small box centered on the cone surface at height z,
+# oriented with:
+#   - long axis (protrusion) along the outward cone normal
+#   - width (tangential) = BLADE_THICK
+#   - depth (along z) = HUB_H / (N_SECTIONS - 1) * 0.6 for overlap
+
+def make_blade_solid():
+    """
+    Build one blade as a union of oriented boxes along the blade path.
+    """
+    # We'll build a list of thin slabs and union them
+    # Use a finer resolution for smooth blade
+    N = 30  # number of slabs for smooth result
+    
+    blade_solid = None
+    
+    # Cone outward normal components (in r-z plane)
+    # Cone wall direction (going up): dr = -(HUB_BASE_R - HUB_TOP_R), dz = HUB_H
+    # Tangent vector along cone wall (upward): t = (-cone_slope, 1) normalized
+    t_mag = math.sqrt(cone_slope**2 + 1)
+    # Outward normal to cone wall (perpendicular, pointing away from cone body):
+    # Rotate tangent 90° outward: n = (1/t_mag, cone_slope/t_mag)
+    # i.e., nr = 1/t_mag, nz = cone_slope/t_mag
+    nr = 1.0 / t_mag        # radial component of outward normal
+    nz = cone_slope / t_mag  # z component of outward normal
+
+    slab_dz = HUB_H / (N - 1)  # spacing between slabs
+
+    for i in range(N):
+        t_param = i / (N - 1)  # 0 → 1
+        z = t_param * HUB_H
+        twist_deg = BLADE_TWIST * t_param  # angular offset for this section
+        twist_rad = math.radians(twist_deg)
+        
+        cone_r = HUB_BASE_R - cone_slope * z
+        protrusion = PROT_BASE + (PROT_TOP - PROT_BASE) * t_param
+        
+        # Center of blade base (on cone surface) in Cartesian:
+        # The blade is at angle twist_rad from the blade's start direction (X axis initially)
+        # Start direction is radial: at twist_rad from +X
+        cx = cone_r * math.cos(twist_rad)
+        cy = cone_r * math.sin(twist_rad)
+        cz = z
+        
+        # Outward normal direction in Cartesian at this angle:
+        onx = nr * math.cos(twist_rad)
+        ony = nr * math.sin(twist_rad)
+        onz = nz
+        
+        # Tangential direction (perpendicular to radial in XY plane):
+        tx = -math.sin(twist_rad)
+        ty =  math.cos(twist_rad)
+        tz = 0.0
+        
+        # Along-normal direction: (onx, ony, onz) — already unit vector
+        
+        # The slab is a box:
+        #   - along tangential (tx,ty,tz): width = BLADE_THICK
+        #   - along normal (onx,ony,onz): height = protrusion (starts at cone surface)
+        #   - along z (slab thickness): slab_dz * 1.5 (overlap for clean union)
+        
+        # Build as a transformation matrix:
+        # X' = tangential, Y' = along-normal, Z' = z-axis (world Z)
+        # Place origin at (cx, cy, cz) which is ON the cone surface
+        # Box extends from 0 to protrusion along normal,
+        #   from -BLADE_THICK/2 to +BLADE_THICK/2 along tangential
+        #   from -slab_dz*0.75 to +slab_dz*0.75 along Z
+
+        # We build the box in local space then transform
+        # Local space: centered at box center
+        # box center in local = (0, protrusion/2, 0)
+        # We then translate to world position
+
+        # Use CadQuery transformation via a workplane defined by normal and origin
+        # The workplane origin will be on the cone surface,
+        # x-dir = tangential, y-dir = outward normal, z-dir derived from those
+
+        # Reconstruct z-dir of workplane as cross(x', y')
+        # x' = (tx, ty, tz), y' = (onx, ony, onz)
+        # z' = x' × y'
+        wpz_x = ty * onz - tz * ony
+        wpz_y = tz * onx - tx * onz
+        wpz_z = tx * ony - ty * onx
+
+        # Build the slab box in the local workplane:
+        # On this workplane: x=tangential, y=outward_normal
+        # Embed 1mm into hub (start from -1 into cone surface)
+        embed = 1.0
+        slab_h = protrusion + embed   # total extrusion along normal (including embed)
+
+        # Slab thickness along world-Z for overlap
+        slab_t = slab_dz * 1.6  # slightly overlapping
+        slab_t = max(slab_t, 2.0)  # minimum 2mm
+
+        # We'll make the box in a generic workplane at the cone surface point
+        # shifted -embed along normal to embed into hub
+        origin_embed_x = cx - embed * onx
+        origin_embed_y = cy - embed * ony
+        origin_embed_z = cz - embed * onz
+
+        # Build a simple box and transform it
+        # In local frame: width=BLADE_THICK, depth=slab_t, height=slab_h
+        # Make in XY plane centered at (0,0), extend in +Y
+        box_local = (
+            cq.Workplane("XY")
+            .center(0, 0)
+            .rect(BLADE_THICK, slab_t)
+            .extrude(slab_h)
+        )
+
+        # Transform: 
+        # Local +X → tangential (tx, ty, tz)
+        # Local +Y → world Z (0, 0, 1) ... actually we want slab_t along world Z
+        # Local +Z → outward normal (onx, ony, onz)
+        # Origin: (origin_embed_x, origin_embed_y, origin_embed_z)
+        
+        # CadQuery transformation matrix (row-major):
+        # columns are [x', y', z', origin]
+        from cadquery import Vector, Location
+        from OCC.Core.gp import gp_Ax3, gp_Pnt, gp_Dir, gp_Trsf, gp_Vec
+        from OCC.Core.BRep import BRep_Builder
+        from cadquery.occ_impl.shapes import Shape
+
+        # Define the local coordinate system:
+        # xDir = tangential = (tx, ty, tz)
+        # Normal (zDir) = outward cone normal = (onx, ony, onz)
+        # yDir = world Z projected or just use cross(zDir, xDir)
+        yd_x = onz * ty - ony * tz   # = (on × t).x ... wait let me redo
+        # yDir = zDir × xDir  (right-hand)
+        # but in CadQuery box: Z is extrude direction (outward normal)
+        #                       X is tangential
+        #                       Y = Z × X
+        yd_x = onz * tz - onz * ty   # wrong, let me be careful
+        
+        # zDir = (onx, ony, onz)
+        # xDir = (tx, ty, tz)
+        # yDir = zDir × xDir
+        yd_x = ony * tz - onz * ty
+        yd_y = onz * tx - onx * tz
+        yd_z = onx * ty - ony * tx
+
+        try:
+            ax3 = gp_Ax3(
+                gp_Pnt(origin_embed_x, origin_embed_y, origin_embed_z),
+                gp_Dir(onx, ony, onz),     # N (extrude direction)
+                gp_Dir(tx,  ty,  tz)       # X direction
+            )
+            trsf = gp_Trsf()
+            trsf.SetTransformation(ax3)
+            trsf.Invert()
+
+            from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
+            occ_shape = box_local.val().wrapped
+            builder = BRepBuilderAPI_Transform(occ_shape, trsf, True)
+            transformed = cq.Shape(builder.Shape())
+            slab_cq = cq.Workplane().newObject([transformed])
+
+            if blade_solid is None:
+                blade_solid = slab_cq
+            else:
+                blade_solid = blade_solid.union(slab_cq)
+        except Exception as e:
+            print(f"Slab {i} failed: {e}")
+            continue
+
+    return blade_solid
+
+# ─────────────────────────────────────────
+# REVISED APPROACH: Use CadQuery Loft
+# ─────────────────────────────────────────
+# Build the blade using loft through cross-sections placed on workplanes.
+# Each section is a rectangle (2mm wide × protrusion tall)
+# positioned on the cone surface at the correct location.
+
+def make_blade_loft():
+    """
+    Build one blade via lofted profiles.
+    Returns a CadQuery solid (single Workplane object with the blade solid).
+    """
+    import cadquery as cq
+    from cadquery import Vector
+    
+    N = 7  # number of loft sections
+    sections = []
+    
+    # Cone normal components
+    t_mag = math.sqrt(cone_slope**2 + 1)
+    nr = 1.0 / t_mag
+    nz = cone_slope / t_mag
+    embed = 1.0  # mm embed into hub surface
+    
+    for i in range(N):
+        t_param = i / (N - 1)
+        z = t_param * HUB_H
+        twist_rad = math.radians(BLADE_TWIST * t_param)
+        cone_r = HUB_BASE_R - cone_slope * z
+        protrusion = PROT_BASE + (PROT_TOP - PROT_BASE) * t_param
+
+        # Surface point on cone
+        cx = cone_r * math.cos(twist_rad)
+        cy = cone_r * math.sin(twist_rad)
+        cz = z
+
+        # Outward normal (unit vector)
+        onx = nr * math.cos(twist_rad)
+        ony = nr * math.sin(twist_rad)
+        onz_val = nz
+
+        # Tangential direction in XY
+        tx = -math.sin(twist_rad)
+        ty =  math.cos(twist_rad)
+        tz_val = 0.0
+
+        # Embed origin: step 'embed' inward along the normal
+        ox = cx - embed * onx
+        oy = cy - embed * ony
+        oz = cz - embed * onz_val
+
+        # The blade cross-section in local coords:
+        # local X = tangential, local Z = outward normal, local Y = zDir × xDir
+        # Rectangle: width=BLADE_THICK along X, height=(protrusion+embed) along Z (extrude)
+        # We need 4 corner points in 3D world space
+
+        total_h = protrusion + embed  # extrusion from embed point to tip
+        half_t = BLADE_THICK / 2.0
+
+        # yDir = outward_normal × tangential  (to complete right-hand system for the section plane)
+        yd_x = ony * tz_val - onz_val * ty
+        yd_y = onz_val * tx  - onx * tz_val
+        yd_z = onx * ty  - ony * tx
+
+        # The section rectangle lies in the plane defined by tangential (tx,ty,tz) × normal (onx,ony,onz)
+        # The plane's xDir = tangential, yDir = computed above
+        # Section rectangle corner points (at the blade base at this height):
+        # We define 4 corners at the SAME height level (on the embed-origin plane)
+        # but the EXTRUSION goes along the normal direction
+        # So the cross-section for lofting is the BASE face of the box at this Z level
+        
+        # 4 corners of the rectangle (in the plane perpendicular to normal, passing through ox,oy,oz):
+        # Corner positions = origin ± half_t * tangential  (width dimension)
+        # The other dimension of the cross-section is along yd (the in-plane Y direction)
+        # But actually the loft cross-section should be the face we're sweeping.
+        # 
+        # Strategy: each loft section is the RECTANGULAR FACE at the blade ROOT (on cone surface)
+        # The loft will interpolate position + taper the protrusion height.
+        # We represent each cross-section as a rectangle at the cone surface point.
+        # The loft extrudes them through space.
+        
+        # To create a closed wire: 4 corners
+        # Two corners at base (embedded into cone): ±half_t along tangential
+        # Two corners at tip (at protrusion height from surface): ±half_t along tangential
+        
+        # Corner A: base, -half_t tangential
+        # Corner B: base, +half_t tangential
+        # Corner C: tip,  +half_t tangential
+        # Corner D: tip,  -half_t tangential
+        
+        A = Vector(ox - half_t * tx,
+                   oy - half_t * ty,
+                   oz - half_t * tz_val)
+        B = Vector(ox + half_t * tx,
+                   oy + half_t * ty,
+                   oz + half_t * tz_val)
+        C = Vector(ox + half_t * tx + total_h * onx,
+                   oy + half_t * ty + total_h * ony,
+                   oz + half_t * tz_val + total_h * onz_val)
+        D = Vector(ox - half_t * tx + total_h * onx,
+                   oy - half_t * ty + total_h * ony,
+                   oz - half_t * tz_val + total_h * onz_val)
+
+        # Build the wire from these 4 points
+        section_wire = cq.Wire.makePolygon([A, B, C, D, A])
+        sections.append(section_wire)
+
+    # Loft through all sections
+    blade = cq.Solid.makeLoft(sections, ruled=False)
+    return cq.Workplane().newObject([blade])
+
+
+# ─────────────────────────────────────────
+# BUILD BLADE AND REPLICATE
+# ─────────────────────────────────────────
+blade_0 = make_blade_loft()
+
+# Rotate and union 7 blades
+result_solid = hub
+angle_step = 360.0 / N_BLADES
+
+for i in range(N_BLADES):
+    angle = i * angle_step
+    blade_i = blade_0.rotate((0, 0, 0), (0, 0, 1), angle)
+    result_solid = result_solid.union(blade_i)
+
+# Final sanity: ensure we have a solid object
+result_solid = result_solid.val()
+
+# Wrap back into Workplane for downstream use if needed
+result_solid = cq.Workplane().newObject([result_solid])

@@ -1,0 +1,8 @@
+{
+    "checks": [],
+    "anomalies": [
+        "Could not parse agent response: None"
+    ],
+    "engineer_summary": "No response received from agent.",
+    "confidence": "LOW"
+}

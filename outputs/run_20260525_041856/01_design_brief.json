@@ -1,0 +1,12 @@
+{
+    "original_prompt": "Make a home AC unit, showing both pieces on different sides of the wall (inside and outside). The external piece should have a fan positioned on its external face vertically. Implement whatever features/methods you are missing in the script itself for your convenience. Use the simpler primitives when unsure.",
+    "expected_dims": {
+        "x_mm": 850.0,
+        "y_mm": 800.0,
+        "z_mm": 650.0,
+        "tolerance_mm": 150.0
+    },
+    "min_wall_mm": 2.0,
+    "manufacturing_process": null,
+    "primitives": []
+}

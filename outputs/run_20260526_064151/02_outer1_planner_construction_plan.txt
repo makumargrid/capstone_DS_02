@@ -1,0 +1,169 @@
+CONSTRUCTION PLAN (REVISED v2):
+
+## Root Cause Analysis of Failures
+
+1. **Non-watertight / self-intersecting mesh**: The `cq.Solid.makeLoft()` with quadrilateral wires at sharp twist angles creates degenerate/self-intersecting topology. The blade cross-sections twist too aggressively between stations, causing OCC to produce bad solids.
+
+2. **Dimension undersize (X/Y ~120mm vs expected ~139mm)**: The blade protrusion wasn't reaching far enough outward. The outward normal calculation placed the blade tip incorrectly — the normal vector should point **radially outward + slightly upward** but the cone normal was pulling the blade too far inward/upward instead of extending radially.
+
+## Revised Strategy
+
+### Hub: Same as before (revolve truncated cone, cut bore)
+
+### Blades: Complete Redesign
+**New approach**: Instead of lofting rectangular wires (fragile with OCC), build each blade as a **thick shell** using a different decomposition:
+
+1. **Blade centerline sweep path**: A 3D polyline from base to top along the cone surface, twisting 60°
+2. **Build blade as a swept solid**: Create the blade by defining **two surfaces** (pressure side and suction side) and lofting between them — but this is still fragile.
+
+**Most Robust Alternative**: 
+- Build the blade as a **loft of TRIANGLE-free closed wires** — use more stations (20+) to reduce twist per step
+- OR: Build each blade as a **series of thin extruded wedges** unioned together
+
+**Chosen approach**: Use **more stations (20)** and ensure wires are **planar and non-degenerate**. Key fix: make the cross-section wire live in a well-defined plane by using `cq.Face.makeFromWires` to validate each station, and ensure the loft has `ruled=True` (smoother interpolation for quad sections).
+
+### Critical Fixes:
+1. **Increase stations to 20** — reduces inter-station twist to 3°, preventing self-intersections
+2. **Use `ruled=True` loft** for linear interpolation between stations (safer than smooth)
+3. **Fix blade extent**: The blade protrusion should be measured **radially outward** (in XY plane), not along the cone normal. At the base (Z=0), the blade tip should be at radius = 50 + 15 = 65mm. At top (Z=60), tip at radius = 15 + 5 = 20mm. This gives X/Y extent ≈ 2*(65) = 130mm + tangential offset ≈ 139mm ✓
+4. **Embed blade base 1mm into hub** to guarantee watertight union
+5. **Validate each wire** before lofting
+
+### Revised Blade Geometry:
+- At each station, the blade cross-section is a rectangle with:
+  - **Inner edge**: on the cone surface (slightly embedded, r_cone - 0.5mm)
+  - **Outer edge**: at r_cone + h_prot (purely radial outward)
+  - **Width**: 2mm in the tangential direction
+  - The rectangle is defined in the **horizontal plane at each Z** (not tilted along cone normal)
+  - This avoids the complex normal vector math that caused dimension errors
+  - The protrusion is purely radial: outer radius = r_cone + h_prot
+
+### Why this fixes dimensions:
+- At Z=0: outer tip at r = 50 + 15 = 65mm → diameter = 130mm
+- Plus tangential half-width: sqrt(65² + 1²) ≈ 65mm → full extent ≈ 130mm
+- 7 blades at 51.4° spacing: max X ≈ 65 * cos(blade_angle_offset) varies
+- The blade at θ=0 reaches X=65mm, so full X = 130mm
+- With twist, some blades reach larger X: at 30° twist mid-station, the tip is still at r=65 but rotated
+- **Expected max X/Y ≈ 130mm** (revised prediction from 139 — the 139 overestimated tangential contribution)
+
+### Assembly Order:
+1. Revolve hub cone
+2. Cut bore
+3. For each of 7 blades: loft 20-station cross-sections, union with hub
+4. Final unified solid
+
+import cadquery as cq
+import math
+
+# ─────────────────────────────────────────────
+# PARAMETERS
+# ─────────────────────────────────────────────
+HUB_BASE_R  = 50.0   # mm, cone base radius at Z=0
+HUB_TOP_R   = 15.0   # mm, cone top radius at Z=60
+HUB_H       = 60.0   # mm, hub height
+BORE_R      = 7.5    # mm, shaft bore radius (15mm diameter)
+N_BLADES    = 7
+BLADE_TWIST = 60.0   # degrees total twist bottom to top
+BLADE_T     = 2.0    # mm, blade thickness (tangential width)
+BLADE_H_BOT = 15.0   # mm, radial protrusion at base
+BLADE_H_TOP = 5.0    # mm, radial protrusion at top
+N_STATIONS  = 20     # number of loft cross-sections per blade
+EMBED       = 0.8    # mm, embed blade into cone for watertight union
+
+# Cone half-angle from vertical
+cone_alpha = math.atan2(HUB_BASE_R - HUB_TOP_R, HUB_H)  # ~30.26 deg
+
+# ─────────────────────────────────────────────
+# 1. HUB — truncated cone via revolve
+# ─────────────────────────────────────────────
+hub = (
+    cq.Workplane("XZ")
+    .polyline([
+        (HUB_BASE_R, 0.0),
+        (HUB_TOP_R,  HUB_H),
+        (0.0,        HUB_H),
+        (0.0,        0.0),
+    ])
+    .close()
+    .revolve(360, (0, 0, 0), (0, 1, 0))
+)
+
+# ─────────────────────────────────────────────
+# 2. BORE — subtract central cylinder
+# ─────────────────────────────────────────────
+bore = (
+    cq.Workplane("XY")
+    .circle(BORE_R)
+    .extrude(HUB_H + 2.0)
+    .translate((0, 0, -1.0))
+)
+hub = hub.cut(bore)
+
+# ─────────────────────────────────────────────
+# HELPER: build one blade wire at a given Z-fraction
+# The cross-section is a flat rectangle in the horizontal plane at height z,
+# with:
+#   - inner radius: r_cone - EMBED  (embedded into cone)
+#   - outer radius: r_cone + h_prot (protrudes radially outward)
+#   - tangential half-width: BLADE_T / 2
+# ─────────────────────────────────────────────
+def make_blade_wire(z_frac, blade_rotation_rad):
+    z      = z_frac * HUB_H
+    r_cone = HUB_BASE_R - (HUB_BASE_R - HUB_TOP_R) * z_frac
+    h_prot = BLADE_H_BOT + (BLADE_H_TOP - BLADE_H_BOT) * z_frac
+    # Total angular position = twist + blade index offset
+    theta  = math.radians(BLADE_TWIST * z_frac) + blade_rotation_rad
+
+    r_inner = max(r_cone - EMBED, BORE_R + 0.5)   # don't go past bore
+    r_outer = r_cone + h_prot
+
+    ht = BLADE_T / 2.0  # tangential half-width
+
+    # Radial unit vector at angle theta
+    cos_t = math.cos(theta)
+    sin_t = math.sin(theta)
+    # Tangential unit vector (CCW perpendicular)
+    cos_t90 = -math.sin(theta)
+    sin_t90 =  math.cos(theta)
+
+    # Four corners of the blade cross-section (flat at height z):
+    # inner-left, inner-right, outer-right, outer-left  (CCW winding)
+    p0 = (r_inner*cos_t + ht*cos_t90,  r_inner*sin_t + ht*sin_t90,  z)
+    p1 = (r_inner*cos_t - ht*cos_t90,  r_inner*sin_t - ht*sin_t90,  z)
+    p2 = (r_outer*cos_t - ht*cos_t90,  r_outer*sin_t - ht*sin_t90,  z)
+    p3 = (r_outer*cos_t + ht*cos_t90,  r_outer*sin_t + ht*sin_t90,  z)
+
+    verts = [cq.Vector(*p) for p in [p0, p1, p2, p3]]
+    edges = [
+        cq.Edge.makeLine(verts[0], verts[1]),
+        cq.Edge.makeLine(verts[1], verts[2]),
+        cq.Edge.makeLine(verts[2], verts[3]),
+        cq.Edge.makeLine(verts[3], verts[0]),
+    ]
+    return cq.Wire.assembleEdges(edges)
+
+
+# ─────────────────────────────────────────────
+# 3. BUILD ALL 7 BLADES AND UNION WITH HUB
+# ─────────────────────────────────────────────
+result_solid = hub
+
+blade_angle_step_rad = 2.0 * math.pi / N_BLADES
+
+for k in range(N_BLADES):
+    rot = k * blade_angle_step_rad
+
+    # Build wire list for this blade
+    wires = []
+    for i in range(N_STATIONS + 1):
+        z_frac = i / float(N_STATIONS)
+        w = make_blade_wire(z_frac, rot)
+        wires.append(w)
+
+    # Loft the blade solid (ruled=True for linear interpolation — more stable)
+    try:
+        blade_solid = cq.Solid.makeLoft(wires, ruled=True)
+        blade_wp    = cq.Workplane("XY").add(blade_solid)
+        result_solid = result_solid.union(blade_wp)
+    except Exception as e:
+        print(f"Blade {k} loft failed: {e}")
