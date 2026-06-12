@@ -1,22 +1,482 @@
-:root{--ink:#0f1a2e;--line:#e2e6ec;--blue:#2563eb;--ok:#1a9850;--bad:#c23a1f;--bg:#f5f7fa}
-*{box-sizing:border-box}body{margin:0;font:14px system-ui;color:var(--ink);background:var(--bg)}
-header{display:flex;align-items:center;gap:14px;padding:14px 22px;background:#fff;border-bottom:1px solid var(--line)}
-header h1{font-size:17px;margin:0}header a{color:inherit;text-decoration:none}.sub{color:#789;font-size:12px}
-main{max-width:1100px;margin:18px auto;padding:0 18px;display:grid;gap:18px}
-.card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:16px}
-h2{font-size:14px;margin:0 0 10px}textarea{width:100%;font:13px ui-monospace;border:1px solid var(--line);border-radius:6px;padding:8px}
-button{margin-top:8px;padding:8px 16px;border:0;border-radius:6px;background:var(--blue);color:#fff;font-weight:600;cursor:pointer}
-button.ok{background:var(--ok)}button.bad{background:var(--bad)}
-.msg{margin-top:8px;font-size:12px;color:#567}
-table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid var(--line);padding:7px 9px;text-align:left;font-size:13px}
-.badge{padding:3px 10px;border-radius:5px;background:#888;color:#fff;font-weight:600;font-size:12px}
-.badge.approved{background:var(--ok)}.badge.failed,.badge.rejected{background:var(--bad)}.badge.running,.badge.queued{background:#d97706}
-.tabs{display:flex;gap:6px;max-width:1100px;margin:0 auto;padding:12px 18px 0}
-.tabs button{background:#fff;color:var(--ink);border:1px solid var(--line)}.tabs button.active{background:var(--ink);color:#fff}
-.panel{min-height:70vh}.panel.hidden{display:none}.wait{color:#789;padding:30px;text-align:center}
-iframe{width:100%;height:78vh;border:1px solid var(--line);border-radius:8px;background:#fff}
-h3{font-size:13px;margin:14px 0 6px;color:#456}
-.log{background:#0b0b0c;color:#d6d6d6;font:12px ui-monospace;padding:10px;height:38vh;overflow:auto;white-space:pre-wrap;border-radius:6px;margin:0}
-.errbox{background:#fdf1f1;border:1px solid var(--bad);color:#7a1f12;padding:10px;border-radius:6px;white-space:pre-wrap;font:12px ui-monospace;margin-bottom:6px}
-.question{background:#fff7ed;border:1px solid #d97706;color:#472a00;padding:12px;border-radius:8px;margin-bottom:12px}.question h3{margin-top:0}.question textarea{margin-top:8px;background:#fff}
-.hidden{display:none}
+/* ═══════════════════════════════════════════════════════════════════════════
+   Geometry Agent Harness — Professional UI Theme
+   Calm palette, trust badges, gate indicators, consistent typography.
+   NO JARGON — designed for engineers and non-experts alike.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Reset & Base ────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+:root {
+    /* Calm professional palette */
+    --bg: #f8f9fa;
+    --surface: #ffffff;
+    --border: #e2e8f0;
+    --text: #1e293b;
+    --text-muted: #64748b;
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --primary-light: #eff6ff;
+    --success: #16a34a;
+    --success-light: #f0fdf4;
+    --warning: #d97706;
+    --warning-light: #fffbeb;
+    --danger: #dc2626;
+    --danger-light: #fef2f2;
+    --info: #0891b2;
+    --slate-50: #f8fafc;
+    --slate-100: #f1f5f9;
+    --slate-200: #e2e8f0;
+    --slate-300: #cbd5e1;
+    --slate-500: #64748b;
+    --slate-700: #334155;
+    --slate-900: #0f172a;
+
+    /* Trust labels */
+    --certified: #16a34a;
+    --certified-bg: #dcfce7;
+    --review: #d97706;
+    --review-bg: #fef3c7;
+    --flagged: #dc2626;
+    --flagged-bg: #fee2e2;
+
+    /* Spacing */
+    --radius: 8px;
+    --radius-sm: 4px;
+    --shadow: 0 1px 3px rgba(0, 0, 0, .08), 0 1px 2px rgba(0, 0, 0, .06);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, .1);
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+}
+
+/* ── Layout ──────────────────────────────────────────────────────────────── */
+.container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 24px 20px;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+.header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: var(--shadow);
+}
+
+.header h1 {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--slate-900);
+}
+
+.header h1 span {
+    color: var(--primary);
+}
+
+.header .subtitle {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+/* ── Cards ───────────────────────────────────────────────────────────────── */
+.card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 16px;
+    box-shadow: var(--shadow);
+}
+
+.card h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--slate-900);
+}
+
+.card h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--slate-700);
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 20px;
+    border: none;
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background .15s, opacity .15s;
+    text-decoration: none;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-primary {
+    background: var(--primary);
+    color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: var(--primary-hover);
+}
+
+.btn-success {
+    background: var(--success);
+    color: #fff;
+}
+
+.btn-success:hover:not(:disabled) {
+    background: #15803d;
+}
+
+.btn-danger {
+    background: var(--danger);
+    color: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+    background: #b91c1c;
+}
+
+.btn-outline {
+    background: var(--surface);
+    border: 1px solid var(--slate-300);
+    color: var(--slate-700);
+}
+
+.btn-outline:hover:not(:disabled) {
+    background: var(--slate-50);
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+.btn-lg {
+    padding: 14px 28px;
+    font-size: 16px;
+}
+
+/* ── Forms ───────────────────────────────────────────────────────────────── */
+.form-group {
+    margin-bottom: 16px;
+}
+
+.form-group label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--slate-700);
+    margin-bottom: 4px;
+}
+
+.form-control {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--slate-300);
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--text);
+    transition: border-color .15s;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, .1);
+}
+
+textarea.form-control {
+    min-height: 100px;
+    resize: vertical;
+}
+
+/* ── Image Upload Zone ───────────────────────────────────────────────────── */
+.upload-zone {
+    border: 2px dashed var(--slate-300);
+    border-radius: var(--radius);
+    padding: 40px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    color: var(--text-muted);
+}
+
+.upload-zone:hover,
+.upload-zone.drag-over {
+    border-color: var(--primary);
+    background: var(--primary-light);
+}
+
+.upload-zone.has-image {
+    border-color: var(--success);
+    background: var(--success-light);
+}
+
+.upload-preview {
+    max-width: 200px;
+    max-height: 150px;
+    margin-top: 12px;
+    border-radius: var(--radius-sm);
+}
+
+/* ── Progress Bar ────────────────────────────────────────────────────────── */
+.progress-bar {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 24px;
+}
+
+.progress-step {
+    flex: 1;
+    padding: 8px 4px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 500;
+    border-radius: var(--radius-sm);
+    background: var(--slate-100);
+    color: var(--text-muted);
+}
+
+.progress-step.active {
+    background: var(--primary-light);
+    color: var(--primary);
+    font-weight: 600;
+}
+
+.progress-step.done {
+    background: var(--success-light);
+    color: var(--success);
+}
+
+.progress-step.failed {
+    background: var(--danger-light);
+    color: var(--danger);
+}
+
+/* ── Gate Status Dot ─────────────────────────────────────────────────────── */
+.status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+}
+
+.status-dot.pending {
+    background: var(--slate-300);
+}
+
+.status-dot.running {
+    background: var(--primary);
+    animation: pulse 1.5s infinite;
+}
+
+.status-dot.passed {
+    background: var(--success);
+}
+
+.status-dot.failed {
+    background: var(--danger);
+}
+
+.status-dot.blocked {
+    background: var(--warning);
+}
+
+@keyframes pulse {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.4;
+    }
+}
+
+/* ── Trust Badges ────────────────────────────────────────────────────────── */
+.trust-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.trust-badge.certified {
+    background: var(--certified-bg);
+    color: var(--certified);
+}
+
+.trust-badge.requires-review {
+    background: var(--review-bg);
+    color: var(--review);
+}
+
+.trust-badge.flagged {
+    background: var(--flagged-bg);
+    color: var(--flagged);
+}
+
+/* ── Run List ────────────────────────────────────────────────────────────── */
+.run-list {
+    list-style: none;
+}
+
+.run-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    transition: background .1s;
+}
+
+.run-item:hover {
+    background: var(--slate-50);
+}
+
+.run-item a {
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.run-item .run-state {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* ── Spec Table ──────────────────────────────────────────────────────────── */
+.spec-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.spec-table th,
+.spec-table td {
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+.spec-table th {
+    font-weight: 600;
+    color: var(--slate-700);
+    background: var(--slate-50);
+}
+
+.spec-table .source-citation {
+    font-size: 11px;
+    color: var(--success);
+    font-weight: 500;
+}
+
+/* ── Check Result ────────────────────────────────────────────────────────── */
+.check-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 13px;
+}
+
+.check-icon {
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.check-pass {
+    color: var(--success);
+}
+
+.check-fail {
+    color: var(--danger);
+}
+
+/* ── Action Bar ──────────────────────────────────────────────────────────── */
+.action-bar {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+}
+
+/* ── Preview Images ──────────────────────────────────────────────────────── */
+.preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+    margin: 12px 0;
+}
+
+.preview-grid img {
+    width: 100%;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.footer {
+    text-align: center;
+    padding: 24px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+    .container {
+        padding: 12px;
+    }
+
+    .header {
+        padding: 12px 16px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
+    .action-bar {
+        flex-direction: column;
+    }
+
+    .preview-grid {
+        grid-template-columns: 1fr;
+    }
+}

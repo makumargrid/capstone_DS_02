@@ -109,13 +109,32 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
     profile = load_profile(detect_process(dp))
     min_wall = profile["min_wall_mm"]
     process = profile["process_key"]
+
+    # ── Trace store (Prompt 13): record every run as queryable rows ──────────
+    from core.trace_store import TraceStore
+    trace_db = os.path.join(output_base_dir, "pipeline_traces.db")
+    trace = TraceStore(trace_db)
+    trace.start_run(ts if run_id is None else run_id, prompt[:500], process)
+    trace.log_stage(ts if run_id is None else run_id, "init", "started")
     log.info(f"[INIT] Process={profile['full_name']} min_wall={min_wall}mm")
 
-    # Independent intent contract — extracted BEFORE planning; the planner cannot
-    # weaken it. This is what stops "centrifugal impeller" → 7 flat plates.
-    spec = extract_spec(dp)
-    log.info(f"[SPEC] {len(spec)} requirement(s): "
+    # ── INTENT RESOLUTION (Prompt 9): unified clarification + standards grounding
+    #     + human confirmation gate. The Spec is frozen here and consumed by both
+    #     planner and checker as the single source of truth.
+    from core.intent_resolver import resolve_intent, explain_plan
+    intent = resolve_intent(dp, profile, interactive, question_handler)
+    if not intent["confirmed"]:
+        log.warning("[INTENT] Spec not confirmed by user; halting.")
+        _save(out, "01_intent_cancelled.json", json.dumps(intent, indent=2))
+        _report(out)
+        return out
+    spec = intent["spec"]
+    log.info(f"[INTENT] Spec confirmed ({'engineer' if intent['is_engineer'] else 'general'} user): "
+             f"{len(spec)} requirement(s), "
              + ", ".join(f"{r.get('claim')}:{r.get('target')}" for r in spec))
+    if intent.get("clarification_notes"):
+        log.info(f"[INTENT] Clarification notes: {intent['clarification_notes']}")
+    _save(out, "01_intent_resolution.json", json.dumps(intent, indent=2, default=str))
     _save(out, "01b_spec.json", json.dumps(spec, indent=2))
     with open(os.path.join(out, "01_design_brief.json"), "w") as f:
         json.dump({"prompt": prompt, "process": process, "min_wall_mm": min_wall,
@@ -267,7 +286,7 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
         # ── /compiler diagnostics ────────────────────────────────────────────
 
         # L2: deterministic intent ground truth.
-        l2 = inspect_solid(ir, solid, prov, min_wall_mm=min_wall)
+        l2 = inspect_solid(ir, solid, prov, min_wall_mm=min_wall, profile=profile)
         _save(out, f"05_outer{attempt}_solid_inspection.json", json.dumps(l2, indent=2))
         log.info(f"[L2] valid={l2['valid']} failures={l2['hard_failures']}")
 
@@ -377,11 +396,18 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
             log.info("=" * 70)
             log.info("✅ APPROVED — geometry valid AND user-intent spec covered.")
             _save(out, "APPROVED_ir.json", json.dumps(ir, indent=2))
+            trace.complete_run(ts if run_id is None else run_id, "approved",
+                              custom_used=any(p.mesh_only for p in prov),
+                              requires_review=any(p.mesh_only for p in prov))
+            trace.log_stage(ts if run_id is None else run_id, "handoff", "completed")
+            trace.close()
             try:
                 from handoff import emit_forgecad_bundle
                 bundle = os.path.join(out, "forgecad_handoff")
-                emit_forgecad_bundle(ir, bundle)
-                log.info(f"[HANDOFF] ForgeCAD bundle written to {bundle}")
+                manifest = emit_forgecad_bundle(ir, bundle)
+                if manifest.get("requires_review"):
+                    log.warning("[HANDOFF] ⚠️ requires_review=true — mesh_only/custom node present. Human review required.")
+                log.info(f"[HANDOFF] ForgeCAD bundle written to {bundle} (trust_label={manifest.get('trust_label','?')})")
             except Exception as e:
                 log.warning(f"[HANDOFF] bundle emission skipped: {e}")
             # ACCEPTANCE: APPROVED(harness) ≠ ACCEPTED(user). Gate + registry.
@@ -559,7 +585,6 @@ if __name__ == "__main__":
     interactive = "--interactive" in sys.argv or "-i" in sys.argv
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     prompt = " ".join(args) if args else (
-        "Create a centrifugal compressor impeller: a truncated cone hub, base "
-        "diameter 100mm, top diameter 30mm, height 60mm; a 15mm through bore "
-        "along the axis; and 7 evenly-spaced radial blades 2mm thick.")
+        "Create a bracket: a 100mm×100mm×10mm base plate with 4 bolt holes "
+        "evenly spaced around a 40mm bolt circle.")
     run_pipeline(prompt, interactive=interactive)

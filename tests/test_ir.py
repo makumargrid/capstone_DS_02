@@ -6,24 +6,24 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from geometry_ir import validate_plan, export_json_schema, Design  # noqa: E402
-from tests.fixtures import impeller_ir  # noqa: E402
+from tests.fixtures import pattern_box_ir  # noqa: E402
 
 
-def test_valid_impeller_passes():
-    r = validate_plan(impeller_ir())
+def test_valid_pattern_passes():
+    r = validate_plan(pattern_box_ir())
     assert r["valid"], r["errors"]
 
 
 def test_missing_required_param_is_node_keyed():
-    ir = impeller_ir()
-    del ir["features"][0]["params"]["r_base"]  # cone missing r_base
+    ir = pattern_box_ir()
+    del ir["features"][0]["params"]["radius"]  # cylinder missing radius
     r = validate_plan(ir)
     assert not r["valid"]
-    assert any(e["node"] == "hub" and "r_base" in e["detail"] for e in r["errors"])
+    assert any(e["node"] == "hub" and "radius" in e["detail"] for e in r["errors"])
 
 
 def test_negative_value_rejected():
-    ir = impeller_ir()
+    ir = pattern_box_ir()
     ir["features"][0]["params"]["height"] = -5.0
     r = validate_plan(ir)
     assert not r["valid"]
@@ -31,7 +31,7 @@ def test_negative_value_rejected():
 
 
 def test_unknown_type_rejected():
-    ir = impeller_ir()
+    ir = pattern_box_ir()
     ir["features"][0]["type"] = "wormhole"
     r = validate_plan(ir)
     assert not r["valid"]
@@ -39,7 +39,7 @@ def test_unknown_type_rejected():
 
 
 def test_bad_target_reference_rejected():
-    ir = impeller_ir()
+    ir = pattern_box_ir()
     ir["features"][2]["target"] = "does_not_exist"  # bore feature
     r = validate_plan(ir)
     assert not r["valid"]
@@ -47,7 +47,7 @@ def test_bad_target_reference_rejected():
 
 
 def test_duplicate_id_rejected():
-    ir = impeller_ir()
+    ir = pattern_box_ir()
     ir["features"][1]["id"] = "hub"
     r = validate_plan(ir)
     assert not r["valid"]
@@ -55,25 +55,25 @@ def test_duplicate_id_rejected():
 
 
 def test_custom_type_accepted_structurally():
-    ir = impeller_ir()
+    ir = pattern_box_ir()
     ir["features"].append({"id": "x", "type": "custom", "params": {"code": "pass"}})
     assert validate_plan(ir)["valid"]
 
 
 def test_pattern_missing_count_rejected():
-    ir = impeller_ir()
-    del ir["features"][1]["params"]["count"]  # blades pattern
+    ir = pattern_box_ir()
+    del ir["features"][1]["params"]["count"]  # feature pattern
     r = validate_plan(ir)
     assert not r["valid"]
-    assert any(e["node"] == "blades" and "count" in e["detail"] for e in r["errors"])
+    assert any(e["node"] == "fins" and "count" in e["detail"] for e in r["errors"])
 
 
 def test_pattern_bad_nested_param_rejected():
-    ir = impeller_ir()
+    ir = pattern_box_ir()
     ir["features"][1]["params"]["feature"]["params"]["width"] = -2
     r = validate_plan(ir)
     assert not r["valid"]
-    assert any(e["node"] == "blades" and "feature." in e["detail"] for e in r["errors"])
+    assert any(e["node"] == "fins" and "feature." in e["detail"] for e in r["errors"])
 
 
 def test_json_schema_roundtrips():
@@ -81,7 +81,7 @@ def test_json_schema_roundtrips():
     assert schema["x-ir-version"] == "1.0"
     json.loads(json.dumps(schema))  # serializable
     # A Design built from the fixture serializes and re-validates.
-    d = Design.model_validate(impeller_ir())
+    d = Design.model_validate(pattern_box_ir())
     assert validate_plan(json.loads(d.model_dump_json()))["valid"]
 
 

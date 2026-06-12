@@ -1,17 +1,80 @@
-<!doctype html><html><head><meta charset=utf-8><title>Geometry Agent Harness</title>
-<meta name=viewport content="width=device-width,initial-scale=1">
-<link rel=stylesheet href="/ui/static/style.css"></head><body>
-<header><h1>◇ Geometry Agent Harness</h1><span class=sub>prompt → verified CAD → editable handoff</span></header>
-<main>
- <section class=card>
-  <h2>New design</h2>
-  <textarea id=prompt rows=4 placeholder="e.g. A centrifugal impeller: cone hub base dia 100mm, top 30mm, height 60mm, 15mm bore, 7 swept blades 2mm thick."></textarea>
-  <button id=go>Generate</button>
-  <div id=msg class=msg></div>
- </section>
- <section class=card>
-  <h2>Runs</h2>
-  <table id=runs><thead><tr><th>run</th><th>state</th><th>prompt</th><th></th></tr></thead><tbody></tbody></table>
- </section>
-</main>
-<script src="/ui/static/app.js"></script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geometry Agent Harness — Design & Manufacture</title>
+    <link rel="stylesheet" href="/ui/static/style.css">
+</head>
+
+<body>
+
+    <header class="header">
+        <div>
+            <h1>Geometry <span>Agent</span> Harness</h1>
+            <p class="subtitle">Describe, confirm, manufacture. No code needed.</p>
+        </div>
+        <a href="/ui/index.html" class="btn btn-outline btn-sm">New Design</a>
+    </header>
+
+    <div class="container">
+
+        <!-- ── Intake Card ───────────────────────────────────────────────────── -->
+        <div class="card">
+            <h2>What would you like to create?</h2>
+            <p style="color:var(--text-muted);margin-bottom:16px;">
+                Describe your part in plain language — we'll work out the dimensions and standards.
+            </p>
+
+            <form id="design-form">
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea class="form-control" id="prompt" rows="4" placeholder="e.g., " A small bracket with four
+                        mounting holes for M6 bolts — about 100mm wide and strong enough for a shelf""></textarea>
+                </div>
+
+                <div class="form-group" style="display:none">
+                    <label>Process (optional — we detect from your description)</label>
+                    <select class="form-control" id="process">
+                        <option value="">Auto-detect</option>
+                        <option value="FDM">3D Print (FDM)</option>
+                        <option value="SLA">Resin Print (SLA)</option>
+                        <option value="CNC">CNC Machining</option>
+                    </select>
+                </div>
+
+                <!-- Image Upload -->
+                <div class="form-group">
+                    <label>Reference image (optional — helps us match the shape)</label>
+                    <div class="upload-zone" id="upload-zone">
+                        <input type="file" id="image-input" accept="image/*" style="display:none">
+                        <p id="upload-text">📷 Click or drag an image here — a photo, sketch, or screenshot</p>
+                        <img id="upload-preview" class="upload-preview" style="display:none">
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-lg" id="submit-btn">
+                    🚀 Start Design
+                </button>
+            </form>
+        </div>
+
+        <!-- ── Recent Runs ───────────────────────────────────────────────────── -->
+        <div class="card">
+            <h2>Your Designs</h2>
+            <div id="run-list-container">
+                <p style="color:var(--text-muted)">Loading…</p>
+            </div>
+        </div>
+
+    </div>
+
+    <footer class="footer">
+        Geometry Agent Harness v2 · Deterministic verification · Standards-grounded · No code required
+    </footer>
+
+    <script src="/ui/static/app.js"></script>
+</body>
+
+</html>

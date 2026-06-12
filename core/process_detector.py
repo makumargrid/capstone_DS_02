@@ -21,7 +21,7 @@ from .logger import get_agent_logger
 logger = get_agent_logger()
 
 _KB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        "knowledge_base", "manufacturing_profiles.json")
+                        "config", "process", "manufacturing_profiles.json")
 _profiles: Optional[dict] = None
 
 

@@ -29,7 +29,7 @@ def evaluate_case(case: dict) -> dict:
     try:
         if kind == "part":
             ir = copy.deepcopy(case["ir"])
-            if "mutate_width" in case:   # build a too-thick blade to trip the thickness check
+            if "mutate_width" in case:   # build a too-thick feature to trip the thickness check
                 ir["features"][1]["params"]["feature"]["params"]["width"] = case["mutate_width"]
             if not validate_plan(ir)["valid"]:
                 actual, detail = "fail", "L1 invalid"

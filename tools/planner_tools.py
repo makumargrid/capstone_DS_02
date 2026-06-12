@@ -47,7 +47,7 @@ def get_primitive_schema(name: str) -> dict:
 
     Args:
         name: a primitive type from list_primitives (e.g. 'cylinder', 'cone',
-              'box', 'hole', 'tube', 'blade').
+              'box', 'hole', 'tube').
     Returns {"name","schema"}, or {"error"} for patterns/`custom` (structural).
     """
     model = PARAM_MODELS.get(name)
@@ -90,18 +90,16 @@ def get_last_valid_ir() -> dict | None:
     return ir
 
 
-def ask_user(question: str) -> str:
-    """Ask the user one clarifying question about a genuinely ambiguous, critical
-    requirement (key dimension, count, tolerance). Use judgment for minor details.
-
-    Args:
-        question: the specific question.
-    Returns the user's answer, or a proceed-note when non-interactive.
-    """
+# ask_user is now handled by the Intent Resolution stage (core/intent_resolver.py).
+# The planner no longer asks clarification — it receives a confirmed Spec.
+# This function is retained for backward compatibility with the question_handler
+# plumbing in IRPlanner / IRResolver. It is NOT registered as a planner tool.
+def _ask_user_terminal(question: str) -> str:
+    """Ask the user one clarifying question (used by Intent Resolution, not planner)."""
     if sys.stdin.isatty():
-        print(f"\n🤔 PLANNER QUESTION: {question}\n>>> ", end="", flush=True)
+        print(f"\n🤔 QUESTION: {question}\n>>> ", end="", flush=True)
         return input()
-    logger.info(f"Non-interactive; planner asked: {question}")
+    logger.info(f"Non-interactive; question asked: {question}")
     return ("Running non-interactively — proceed with best engineering judgment "
             "based on the prompt.")
 
@@ -113,11 +111,11 @@ def verify_spatial_placement(feature_type: str, feature_params: dict,
     Builds BOTH the feature solid and the parent solid using the exact same
     builders the compiler will use, then measures how much of the feature
     extends beyond the parent. Use this BEFORE emitting your IR to verify
-    that blades, bosses, ribs, fins, or any union feature will be VISIBLE
+    that bosses, ribs, fins, or any union feature will be VISIBLE
     and not embedded inside the parent.
 
     Args:
-        feature_type: the primitive type (e.g. 'blade', 'box', 'cylinder')
+        feature_type: the primitive type (e.g. 'box', 'cylinder')
         feature_params: the feature's params dict (at, chord, height, width, etc.)
         parent_type: the parent's type (e.g. 'frustum', 'cone', 'box', 'cylinder')
         parent_params: the parent's params dict (r_base, r_top, height, etc.)
@@ -209,7 +207,7 @@ def verify_spatial_placement(feature_type: str, feature_params: dict,
         suggestion = (
             f"Move the {feature_type} outward: increase at[0] by at least "
             f"{parent_max_r - feat_max_r:.0f}mm, or increase its radial size. "
-            f"For blade on cone/frustum, set lean_deg=0 initially and verify positioning."
+            f"For a feature on cone/frustum, position it so it extends outward and verify positioning."
         )
 
     return {

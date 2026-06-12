@@ -1,0 +1,6 @@
+type: cylinder
+display_name: Cylinder
+builder: build_cylinder
+param_model: CylinderParams
+forgecad: cylinder
+checks: []

@@ -1,0 +1,6 @@
+type: profile
+display_name: Profile (Sketch-based)
+builder: build_profile
+param_model: ProfileParams
+forgecad: null
+checks: []

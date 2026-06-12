@@ -1,0 +1,59 @@
+# Metric Bolts — ISO 4017 / ISO 4762
+# Dimensions in mm. Source: ISO 4017 (hex head), ISO 4762 (socket head).
+# Thread pitch is coarse (standard) unless noted.
+
+M3:
+  major_diameter: 3.0
+  pitch: 0.5
+  head_diameter: 5.5
+  head_height: 2.0
+M4:
+  major_diameter: 4.0
+  pitch: 0.7
+  head_diameter: 7.0
+  head_height: 2.8
+M5:
+  major_diameter: 5.0
+  pitch: 0.8
+  head_diameter: 8.5
+  head_height: 3.5
+M6:
+  major_diameter: 6.0
+  pitch: 1.0
+  head_diameter: 10.0
+  head_height: 4.0
+M8:
+  major_diameter: 8.0
+  pitch: 1.25
+  head_diameter: 13.0
+  head_height: 5.3
+M10:
+  major_diameter: 10.0
+  pitch: 1.5
+  head_diameter: 16.0
+  head_height: 6.4
+M12:
+  major_diameter: 12.0
+  pitch: 1.75
+  head_diameter: 18.0
+  head_height: 7.5
+M16:
+  major_diameter: 16.0
+  pitch: 2.0
+  head_diameter: 24.0
+  head_height: 10.0
+M20:
+  major_diameter: 20.0
+  pitch: 2.5
+  head_diameter: 30.0
+  head_height: 12.5
+M24:
+  major_diameter: 24.0
+  pitch: 3.0
+  head_diameter: 36.0
+  head_height: 15.0
+M30:
+  major_diameter: 30.0
+  pitch: 3.5
+  head_diameter: 46.0
+  head_height: 18.7

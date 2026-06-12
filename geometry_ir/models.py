@@ -32,14 +32,21 @@ class Feature(BaseModel):
     op      — how this feature combines with the running solid (union | cut).
     target  — id of a prior feature this op applies onto (None = world/base).
     asserts — optional intent claims the solid inspector (L2) must verify.
+    pose    — optional rigid transform {translate: [x,y,z], rotate: [rx,ry,rz]}.
+              Applied by the compiler after the builder builds at local origin.
+    anchor  — optional relational placement {to, from_face, to_face, align, offset}.
+              The compiler resolves this against the referenced feature's geometry
+              to produce a pose. Has no effect if used alongside an explicit pose.
     """
     model_config = ConfigDict(extra="forbid")
     id: str = Field(min_length=1)
     type: str = Field(min_length=1)
     params: dict[str, Any] = Field(default_factory=dict)
-    op: Literal["union", "cut"] = "union"
+    op: Literal["union", "cut", "fillet", "chamfer"] = "union"
     target: Optional[str] = None
     asserts: Optional[dict[str, Any]] = None
+    pose: Optional[dict[str, Any]] = None
+    anchor: Optional[dict[str, Any]] = None
 
 
 class Design(BaseModel):

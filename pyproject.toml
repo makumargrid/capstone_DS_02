@@ -2,3 +2,14 @@
 include = ["core", "agents", "primitives", "geometry_ir", "tools", "verification", "webui", "pipeline.py"]
 venvPath = "."
 venv = ".venv"
+
+[project]
+name = "agentic-cad-pipeline"
+version = "2.0"
+dependencies = [
+    "cadquery",
+    "pydantic>=2",
+    "google-genai",
+    "google-adk",
+    "pyyaml",
+]

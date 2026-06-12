@@ -1,0 +1,6 @@
+type: frustum
+display_name: Frustum / Truncated Cone
+builder: build_cone
+param_model: ConeParams
+forgecad: cone
+checks: []

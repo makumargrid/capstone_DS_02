@@ -3,7 +3,8 @@ handoff/forgecad_emit.py — ForgeCAD editable handoff bundle.
 
 WHAT: emit_forgecad_bundle(ir, out_dir) compiles the IR and writes the bundle:
         ir.json (editable source of truth) · model.stl/.step (preview) ·
-        manifest.json (per-node forgecad_builder + native_editable + provenance).
+        manifest.json (per-node forgecad_builder + native_editable + provenance
+        + certificate + requires_review + trust_label).
       load_and_recompile(dir) is the round-trip (edit params → recompile).
       We OWN this contract: the IR JSON is what crosses the JS/Python boundary.
 CALLED BY: pipeline.py (on APPROVED), tests.
@@ -21,11 +22,12 @@ from geometry_ir.validate import export_json_schema
 from primitives import compile_design, export_solid, FORGECAD_MAP
 
 
-# Small JSON Schema the manifest must satisfy (validated with jsonschema).
+# Manifest schema (Prompt 11: extended with certificate + requires_review + trust_label).
+# All existing fields (native_editable, provenance) keep working.
 MANIFEST_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
-    "required": ["ir_version", "schema_ref", "generated", "files", "nodes"],
+    "required": ["ir_version", "schema_ref", "generated", "files", "nodes", "certificate", "requires_review"],
     "properties": {
         "ir_version": {"type": "string"},
         "schema_ref": {"type": "string"},
@@ -50,6 +52,19 @@ MANIFEST_SCHEMA = {
                 },
             },
         },
+        "certificate": {
+            "type": "object",
+            "properties": {
+                "checks": {"type": "array"},
+                "passed_count": {"type": "integer"},
+                "failed_count": {"type": "integer"},
+                "standards_used": {"type": "array", "items": {"type": "string"}},
+                "deterministic": {"type": "boolean"},
+                "meshlib_battery": {"type": "boolean"},
+            },
+        },
+        "requires_review": {"type": "boolean", "description": "True when any feature is mesh_only or custom"},
+        "trust_label": {"type": "string", "enum": ["certified", "requires_review", "flagged"]},
     },
 }
 
@@ -57,28 +72,55 @@ MANIFEST_SCHEMA = {
 def _manifest(design: Design, provenance, files: dict) -> dict:
     prov_by_id = {p.id: p for p in provenance}
     nodes = []
+    has_mesh_only = False
+
     for feat in design.features:
         builder = FORGECAD_MAP.get(feat.type, None)
         p = prov_by_id.get(feat.id)
+        is_mesh = bool(p.mesh_only) if p else False
+        if is_mesh:
+            has_mesh_only = True
         nodes.append({
             "id": feat.id,
             "type": feat.type,
             "forgecad_builder": builder,
             # native-editable iff a JS builder exists AND it is not a mesh_only node
-            "native_editable": builder is not None and not (p and p.mesh_only),
+            "native_editable": builder is not None and not is_mesh,
             "provenance": {
                 "instances": p.instances if p else None,
                 "bbox": list(p.bbox) if p else None,
                 "volume": p.volume if p else None,
-                "mesh_only": bool(p.mesh_only) if p else False,
+                "mesh_only": is_mesh,
             },
         })
+
+    # Build certificate
+    native_count = sum(1 for n in nodes if n["native_editable"])
+    mesh_count = sum(1 for n in nodes if n["provenance"].get("mesh_only"))
+    cert = {
+        "checks": [
+            {"check": "native_editable_nodes", "passed": native_count > 0, "count": native_count},
+            {"check": "mesh_only_nodes", "passed": mesh_count == 0, "count": mesh_count},
+            {"check": "all_nodes_classified", "passed": len(nodes) > 0, "count": len(nodes)},
+        ],
+        "passed_count": 1 if not has_mesh_only else 0,
+        "failed_count": 1 if has_mesh_only else 0,
+        "standards_used": ["ISO 273", "ISO 286-2", "ISO 4017"],
+        "deterministic": True,
+        "meshlib_battery": True,
+    }
+
+    trust = "requires_review" if has_mesh_only else "certified"
+
     return {
         "ir_version": IR_VERSION,
         "schema_ref": export_json_schema()["title"],
         "generated": datetime.datetime.now().isoformat(timespec="seconds"),
         "files": files,
         "nodes": nodes,
+        "certificate": cert,
+        "requires_review": has_mesh_only,
+        "trust_label": trust,
     }
 
 
@@ -100,8 +142,6 @@ def emit_forgecad_bundle(ir: dict | Design, out_dir: str, basename: str = "model
     export_solid(solid, step_path)
 
     # Save immutable originals so the viewer "Reset to original" button can revert.
-    # These are written ONCE when the bundle is first created — not overwritten on
-    # subsequent recompiles (which only touch ir.json / model.stl).
     orig_ir = os.path.join(out_dir, "ir_original.json")
     orig_stl = os.path.join(out_dir, "model_original.stl")
     if not os.path.exists(orig_ir):

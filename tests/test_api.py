@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import api.app as api
 from fastapi.testclient import TestClient
-from tests.fixtures import impeller_ir
+from tests.fixtures import pattern_box_ir
 
 
 def _fake_runner(prompt, output_base_dir="outputs", interactive=False, run_id=None,
@@ -149,13 +149,13 @@ def test_ws_stream_reaches_terminal():
 
 def test_recompile_valid_ir():
     c = _setup()
-    r = c.post("/recompile", json={"ir": impeller_ir()}).json()
+    r = c.post("/recompile", json={"ir": pattern_box_ir()}).json()
     assert r["valid"] and r["stl_b64"] and r["stage"] == "verify"
 
 
 def test_recompile_invalid_ir():
     c = _setup()
-    bad = impeller_ir(); del bad["features"][0]["params"]["r_base"]
+    bad = pattern_box_ir(); del bad["features"][0]["params"]["r_base"]
     r = c.post("/recompile", json={"ir": bad}).json()
     assert r["valid"] is False and r["stage"] == "validate"
 

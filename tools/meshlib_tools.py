@@ -64,7 +64,7 @@ def execute_meshlib_code(script_content: str, mesh_path: str) -> dict:
     # inspector agent sees it on the NEXT retry, not before any code has run.
     if not result.get("success") and result.get("stderr"):
         try:
-            from rag_kb2 import get_error_context as _kb2
+            from knowledge.occt_errors import get_error_context as _kb2
             kb = _kb2(result["stderr"])
             if kb:
                 result["stderr"] = result["stderr"] + "\n\n[KB_CONTEXT]\n" + kb

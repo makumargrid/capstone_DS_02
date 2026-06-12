@@ -1,0 +1,6 @@
+type: sphere
+display_name: Sphere
+builder: build_sphere
+param_model: SphereParams
+forgecad: sphere
+checks: []

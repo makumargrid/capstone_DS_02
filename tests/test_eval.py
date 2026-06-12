@@ -15,7 +15,7 @@ def test_every_eval_case_behaves_as_expected():
 def test_eval_includes_edge_cases():
     names = {r["name"] for r in run_all()}
     for must in ("assembly_interference", "assembly_floating", "assembly_cycle",
-                 "impeller_flat_blades", "impeller_wrong_count", "blade_too_thick_8mm"):
+                 "pattern_flat_features", "pattern_wrong_count", "feature_too_thick_8mm"):
         assert must in names
 
 

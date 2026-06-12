@@ -12,7 +12,7 @@ ADD A PRIMITIVE: add its <Name>Params here + an entry in PARAM_MODELS, then a
 builder in builders.py and registry entries — and a builder unit test.
 """
 from __future__ import annotations
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -51,6 +51,14 @@ class SphereParams(_Base):
     radius: float = Field(gt=0)
 
 
+class ProfileParams(_Base):
+    """2D sketch + operation: extrude, revolve, sweep, loft."""
+    operation: str = "extrude"
+    depth: float = Field(gt=0)
+    sketch: dict[str, Any] = Field(default_factory=dict)
+    # sketch types: circle {radius}, rect {width,height}, polygon {sides,radius}
+
+
 class TubeParams(_Base):
     """Hollow cylinder (pipe): outer/inner radius, height. inner < outer."""
     outer_radius: float = Field(gt=0)
@@ -64,23 +72,6 @@ class TubeParams(_Base):
         return self
 
 
-class BladeParams(_Base):
-    """Twisted lofted protrusion (impeller/fan blade): rect `width`×`chord`
-    lofted over `height`, rotating `twist_deg` base→top, optionally leaning
-    radially inward by `lean_deg` (tracks a tapered hub surface).
-
-    lean_deg = 0 (default) → vertical blade (existing behaviour, no geometry change).
-    lean_deg > 0 → blade center shifts radially inward by tan(lean_deg)×z at each
-                    cross-section, matching a frustum hub taper to reduce union artifacts.
-    For a frustum hub: lean_deg = degrees(arctan((r_base - r_top) / height)).
-    """
-    width: float = Field(gt=0)
-    chord: float = Field(gt=0)
-    height: float = Field(gt=0)
-    twist_deg: float = 0.0
-    lean_deg: float = 0.0   # radially-inward lean per unit height (hub-tracking)
-
-
 # type → param model (the validatable primitive vocabulary).
 PARAM_MODELS: dict[str, type[BaseModel]] = {
     "cylinder": CylinderParams,
@@ -90,5 +81,5 @@ PARAM_MODELS: dict[str, type[BaseModel]] = {
     "hole": HoleParams,
     "sphere": SphereParams,
     "tube": TubeParams,
-    "blade": BladeParams,
+    "profile": ProfileParams,
 }

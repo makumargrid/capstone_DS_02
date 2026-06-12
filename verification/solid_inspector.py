@@ -25,10 +25,19 @@ import cadquery as cq
 
 from geometry_ir.models import Design
 from primitives.compiler import compile_design, FeatureProvenance
+from core.config_loader import load_inspection_thresholds
+from verification.invariants import run_invariants, check_mesh_only as _check_mesh_only
+from verification.dfm import run_dfm_checks
 
-# Envelope is a COARSE bound: effective tol = max(declared, ENV_REL_TOL*dim).
-# Precise intent lives in per-feature asserts, so this can be generous.
-ENV_REL_TOL = 0.07  # 7% of the dimension
+# ── Thresholds loaded from config/checks/inspection_thresholds.yaml ───────────
+_th = load_inspection_thresholds()
+ENV_REL_TOL = _th["envelope"]["rel_tol"]
+_CONTRIB_RATIO_FLOOR = _th["feature_contributes"]["contribution_ratio_floor"]
+_THICKNESS_BAND_FRAC = _th["uniform_thickness"]["band_frac"]
+_THICKNESS_MIN_BAND = _th["uniform_thickness"]["min_band_mm"]
+_CONTACT_GAP_TOL = _th["parent_contact"]["gap_tolerance_mm"]
+_BORE_VOID_FRACTION = _th["bore"]["void_volume_fraction"]
+_BORE_PROBE_FRACTION = _th["bore"]["probe_diameter_fraction"]
 
 
 def _result(node, claim, passed, measured, expected, detail=""):
@@ -41,7 +50,8 @@ def _min_axis_len(bbox: tuple[float, float, float]) -> float:
 
 
 def inspect_solid(design: Design | dict, solid: cq.Solid,
-                  provenance: list[FeatureProvenance], min_wall_mm: float = 2.0) -> dict:
+                  provenance: list[FeatureProvenance], min_wall_mm: float = 2.0,
+                  profile: dict | None = None) -> dict:
     """Run L2 checks. Returns {valid, checks:[node-keyed], hard_failures:[...]}."""
     if isinstance(design, dict):
         design = Design.model_validate(design)
@@ -64,7 +74,7 @@ def inspect_solid(design: Design | dict, solid: cq.Solid,
     #    per-feature asserts below. So the effective tolerance is the larger of
     #    the declared tolerance and ENV_REL_TOL of the dimension. This lets a
     #    dimensionally-correct part whose features legitimately protrude (e.g.
-    #    impeller blades rising above the hub) pass, while a 2x/collapsed part
+    #    pattern features rising above the body) pass, while a 2x/collapsed part
     #    still fails. NOT a band-aid: wrong FEATURE dims are caught in step 3.
     bb = solid.BoundingBox()
     env = design.envelope
@@ -99,12 +109,22 @@ def inspect_solid(design: Design | dict, solid: cq.Solid,
             if not is_base:
                 checks.append(_result(
                     feat.id, "feature_contributes",
-                    prov.contribution_ratio > 0.20,
-                    round(prov.contribution_ratio, 4), "> 0.20",
+                    prov.contribution_ratio > _CONTRIB_RATIO_FLOOR,
+                    round(prov.contribution_ratio, 4), f"> {_CONTRIB_RATIO_FLOOR}",
                     f"only {prov.contribution_ratio * 100:.0f}% of '{feat.id}' "
                     f"protrudes from the surface ({prov.external_volume:.0f}mm³ "
                     f"of {prov.volume:.0f}mm³ total)"
                 ))
+
+    # 3c. UNIVERSAL INVARIANTS: hole-edge clearance, self-intersection,
+    #     watertight, min-wall, envelope containment, feature clearance.
+    #     Planner-independent; runs with empty asserts.
+    checks.extend(run_invariants(design, solid, provenance, min_wall_mm=min_wall_mm))
+
+    # 3d. DFM (manufacturability): overhang, bridge span, hole diameter,
+    #     feature size, draft angle. Driven by the active process profile.
+    if profile is not None:
+        checks.extend(run_dfm_checks(solid, design, provenance, profile))
 
     # 3b. UNIVERSAL: parent contact check — feature must intersect parent at all z-levels
     for feat in design.features:
@@ -153,8 +173,6 @@ def _thickness_param(ftype: str, params: dict):
     the primitive has no single explicit thickness dimension (→ fall back to AABB).
     The compiler is deterministic + unit-tested, so the param IS the true wall
     thickness — and unlike an AABB this is correct for TWISTED/swept geometry."""
-    if ftype == "blade":
-        return params.get("width")
     if ftype == "box":
         vals = [params.get(k) for k in ("length", "width", "height")]
         return min(v for v in vals if v is not None) if any(vals) else None
@@ -165,7 +183,7 @@ def _thickness_param(ftype: str, params: dict):
 
 
 def _check_uniform_thickness(feat, prov: FeatureProvenance, declared: float,
-                             band_frac: float = 0.25) -> dict:
+                             band_frac: float | None = None) -> dict:
     """Two-sided: the feature's wall thickness ≈ declared.
 
     Catches BOTH too-thin AND the legacy 8.63mm merged-too-thick miss. Prefers
@@ -179,7 +197,8 @@ def _check_uniform_thickness(feat, prov: FeatureProvenance, declared: float,
     ftype = sub["type"] if isinstance(sub, dict) else feat.type
     fparams = sub.get("params", {}) if isinstance(sub, dict) else feat.params
     measured = _thickness_param(ftype, fparams)
-    band = max(declared * band_frac, 0.3)
+    _bf = band_frac if band_frac is not None else _THICKNESS_BAND_FRAC
+    band = max(declared * _bf, _THICKNESS_MIN_BAND)
     if measured is not None:
         ok = abs(measured - declared) <= band
         return _result(node, "uniform_thickness_mm", ok, round(measured, 3), declared,
@@ -190,7 +209,8 @@ def _check_uniform_thickness(feat, prov: FeatureProvenance, declared: float,
         return _result(node, "uniform_thickness_mm", False, None, declared, "no instance")
     bb = base.BoundingBox()
     measured = _min_axis_len((round(bb.xlen, 4), round(bb.ylen, 4), round(bb.zlen, 4)))
-    band = max(declared * band_frac, 0.3)
+    _bf = band_frac if band_frac is not None else _THICKNESS_BAND_FRAC
+    band = max(declared * _bf, _THICKNESS_MIN_BAND)
     ok = abs(measured - declared) <= band
     return _result(node, "uniform_thickness_mm", ok, round(measured, 3), declared,
                    f"base instance min-axis vs declared (band ±{band:.2f})")
@@ -278,10 +298,10 @@ def _check_parent_contact(node: str, prov: FeatureProvenance, parent_id: str,
                        f"parent_contact check not implemented for {parent_type}")
 
     detachment_zones = []
-    if min_r_at_bottom != float('inf') and min_r_at_bottom > parent_r_at_bottom + 2.0:
+    if min_r_at_bottom != float('inf') and min_r_at_bottom > parent_r_at_bottom + _CONTACT_GAP_TOL:
         detachment_zones.append(f"z≈{round(z_min,1)}mm: feature min_r={round(min_r_at_bottom,1)}mm "
                                 f"> parent r={round(parent_r_at_bottom,1)}mm")
-    if min_r_at_top != float('inf') and min_r_at_top > parent_r_at_top + 2.0:
+    if min_r_at_top != float('inf') and min_r_at_top > parent_r_at_top + _CONTACT_GAP_TOL:
         detachment_zones.append(f"z≈{round(z_max,1)}mm: feature min_r={round(min_r_at_top,1)}mm "
                                 f"> parent r={round(parent_r_at_top,1)}mm")
 
@@ -305,10 +325,10 @@ def _check_bore(node, prov: FeatureProvenance, solid: cq.Solid, diameter: float)
     by probes extending far beyond the actual part height."""
     # Use the final solid's bounding box for the probe extent (not the cutting tool's)
     bb = solid.BoundingBox()
-    probe = cq.Solid.makeCylinder(diameter / 2.0 * 0.9, bb.zlen + 4,
+    probe = cq.Solid.makeCylinder(diameter / 2.0 * _BORE_PROBE_FRACTION, bb.zlen + 4,
                                   cq.Vector(0, 0, bb.zmin - 2))
     void_vol = solid.intersect(probe).Volume()
-    ok = void_vol < probe.Volume() * 0.05  # mostly empty → bore present
+    ok = void_vol < probe.Volume() * _BORE_VOID_FRACTION  # mostly empty → bore present
     return _result(node, "bore_present", ok, round(void_vol, 2), 0.0,
                    f"residual material inside bore dia {diameter}mm")
 

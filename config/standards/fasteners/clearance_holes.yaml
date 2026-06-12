@@ -1,0 +1,59 @@
+# Clearance Hole Diameters — ISO 273 (medium fit)
+# Dimensions in mm. Source: ISO 273.
+# close fit = tight clearance, medium fit = standard, loose fit = generous clearance
+
+M3:
+  close: 3.2
+  medium: 3.4
+  loose: 3.6
+  source: "ISO 273"
+M4:
+  close: 4.3
+  medium: 4.5
+  loose: 4.8
+  source: "ISO 273"
+M5:
+  close: 5.3
+  medium: 5.5
+  loose: 5.8
+  source: "ISO 273"
+M6:
+  close: 6.4
+  medium: 6.6
+  loose: 7.0
+  source: "ISO 273"
+M8:
+  close: 8.4
+  medium: 9.0
+  loose: 10.0
+  source: "ISO 273"
+M10:
+  close: 10.5
+  medium: 11.0
+  loose: 12.0
+  source: "ISO 273"
+M12:
+  close: 13.0
+  medium: 13.5
+  loose: 14.5
+  source: "ISO 273"
+M16:
+  close: 17.0
+  medium: 17.5
+  loose: 18.5
+  source: "ISO 273"
+M20:
+  close: 21.0
+  medium: 22.0
+  loose: 24.0
+  source: "ISO 273"
+M24:
+  close: 25.0
+  medium: 26.0
+  loose: 28.0
+  source: "ISO 273"
+M30:
+  close: 31.0
+  medium: 33.0
+  loose: 35.0
+  source: "ISO 273"

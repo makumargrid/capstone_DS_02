@@ -9,7 +9,7 @@ from tools.planner_tools import (  # noqa: E402
     list_primitives, get_primitive_schema, validate_plan,
 )
 from agents.planner_agent.agent import extract_ir, root_agent, IRPlanner  # noqa: E402
-from tests.fixtures import impeller_ir  # noqa: E402
+from tests.fixtures import pattern_box_ir  # noqa: E402
 
 
 def test_list_primitives_tool():
@@ -28,12 +28,12 @@ def test_get_schema_unknown_is_graceful():
 
 
 def test_validate_plan_tool_accepts_json_string():
-    r = validate_plan(json.dumps(impeller_ir()))
+    r = validate_plan(json.dumps(pattern_box_ir()))
     assert r["valid"], r["errors"]
 
 
 def test_validate_plan_tool_reports_node_errors():
-    ir = impeller_ir()
+    ir = pattern_box_ir()
     del ir["features"][0]["params"]["r_base"]
     r = validate_plan(json.dumps(ir))
     assert not r["valid"]
@@ -46,7 +46,7 @@ def test_validate_plan_tool_bad_json():
 
 
 def test_extract_ir_from_fenced_block():
-    text = "Here is the design.\n```json\n" + json.dumps(impeller_ir()) + "\n```\nDone."
+    text = "Here is the design.\n```json\n" + json.dumps(pattern_box_ir()) + "\n```\nDone."
     ir = extract_ir(text)
     assert validate_plan(json.dumps(ir))["valid"]
 

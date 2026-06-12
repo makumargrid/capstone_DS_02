@@ -9,12 +9,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import jsonschema  # noqa: E402
 from primitives import compile_design  # noqa: E402
 from handoff import emit_forgecad_bundle, load_and_recompile, MANIFEST_SCHEMA  # noqa: E402
-from tests.fixtures import impeller_ir, bracket_ir  # noqa: E402
+from tests.fixtures import pattern_box_ir, bracket_ir  # noqa: E402
 
 
 def test_bundle_files_written():
     with tempfile.TemporaryDirectory() as d:
-        emit_forgecad_bundle(impeller_ir(), d)
+        emit_forgecad_bundle(pattern_box_ir(), d)
         for name in ("ir.json", "model.stl", "model.step", "manifest.json"):
             assert os.path.getsize(os.path.join(d, name)) > 0
 
@@ -27,9 +27,9 @@ def test_manifest_validates_against_schema():
 
 def test_every_node_classified():
     with tempfile.TemporaryDirectory() as d:
-        m = emit_forgecad_bundle(impeller_ir(), d)
+        m = emit_forgecad_bundle(pattern_box_ir(), d)
         ids = {n["id"] for n in m["nodes"]}
-        assert ids == {"hub", "blades", "bore"}
+        assert ids == {"hub", "fins", "bore"}
         for n in m["nodes"]:
             assert n["native_editable"] is True  # all base primitives map natively
             assert n["forgecad_builder"] is not None
@@ -52,8 +52,8 @@ def test_custom_node_is_mesh_only():
 
 def test_roundtrip_identical_solid():
     with tempfile.TemporaryDirectory() as d:
-        emit_forgecad_bundle(impeller_ir(), d)
-        original, _ = compile_design(impeller_ir())
+        emit_forgecad_bundle(pattern_box_ir(), d)
+        original, _ = compile_design(pattern_box_ir())
         reloaded, prov = load_and_recompile(d)
         assert abs(original.Volume() - reloaded.Volume()) < 1e-6
         assert len(original.Solids()) == len(reloaded.Solids())

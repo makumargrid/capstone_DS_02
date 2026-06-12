@@ -1,0 +1,7 @@
+type: box
+display_name: Box
+builder: build_box
+param_model: BoxParams
+forgecad: box
+checks:
+  - uniform_thickness_mm

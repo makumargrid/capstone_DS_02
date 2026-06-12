@@ -13,11 +13,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from primitives import compile_design  # noqa: E402
 from verification.renderer import render_views, _VIEWS  # noqa: E402
-from tests.fixtures import impeller_ir  # noqa: E402
+from tests.fixtures import pattern_box_ir  # noqa: E402
 
 
 def test_renders_five_views_headless():
-    solid, _ = compile_design(impeller_ir())
+    solid, _ = compile_design(pattern_box_ir())
     with tempfile.TemporaryDirectory() as d:
         paths = render_views(solid, d)
         assert set(paths) == set(_VIEWS)
@@ -38,7 +38,7 @@ def test_vision_agent_has_no_tools_and_model():
 
 def test_img_part_builds_inline_data():
     from agents.vision_agent.agent import _img_part
-    solid, _ = compile_design(impeller_ir())
+    solid, _ = compile_design(pattern_box_ir())
     with tempfile.TemporaryDirectory() as d:
         paths = render_views(solid, d)
         part = _img_part(paths["front"])

@@ -1,0 +1,36 @@
+# Minimum wall thickness recommendations by material.
+# Source: Engineering handbooks + manufacturer guidelines.
+# All values in mm.
+
+abs:
+  description: "ABS (FDM)"
+  min_wall: 1.5
+  source: "Stratasys / Ultimaker FDM guidelines"
+pla:
+  description: "PLA (FDM)"
+  min_wall: 1.0
+  source: "Prusa / Ultimaker FDM guidelines"
+petg:
+  description: "PETG (FDM)"
+  min_wall: 1.2
+  source: "Prusa / MatterHackers FDM guidelines"
+nylon_pa12:
+  description: "Nylon PA12 (SLS)"
+  min_wall: 0.7
+  source: "EOS SLS material datasheet"
+aluminum_6061:
+  description: "Aluminum 6061-T6 (CNC)"
+  min_wall: 0.8
+  source: "Protolabs CNC machining guidelines"
+steel_1018:
+  description: "Mild Steel / 1018 (CNC)"
+  min_wall: 0.5
+  source: "Protolabs / Xometry CNC guidelines"
+stainless_304:
+  description: "Stainless Steel 304 (CNC)"
+  min_wall: 0.5
+  source: "Protolabs / Xometry CNC guidelines"
+titanium_ti64:
+  description: "Titanium Ti-6Al-4V (CNC)"
+  min_wall: 0.8
+  source: "Protolabs CNC machining guidelines"

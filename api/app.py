@@ -364,3 +364,15 @@ def recompile(body: dict, _=Depends(_auth)):
     if not isinstance(ir, dict):
         raise HTTPException(status_code=422, detail="missing 'ir' object")
     return recompile_ir(ir)
+
+
+# ── Prompt 10 — Image intake endpoint ────────────────────────────────────────
+@app.get("/designs/{rid}/reference-image")
+def get_reference_status(rid: str, _=Depends(_auth)):
+    """Check if a reference image exists for a session."""
+    with _RUN_LOCK:
+        r = dict(RUNS.get(rid) or {})
+    if not r:
+        raise HTTPException(status_code=404, detail="unknown run_id")
+    from interaction.image_intake import has_reference_image
+    return {"has_reference": has_reference_image(r["dir"])}

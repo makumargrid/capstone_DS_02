@@ -1,0 +1,7 @@
+type: hole
+display_name: Hole / Through Hole
+builder: build_hole
+param_model: HoleParams
+forgecad: hole
+checks:
+  - bore_diameter_mm

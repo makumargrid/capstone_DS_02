@@ -1,0 +1,86 @@
+# ISO 286-1 / 286-2: Limits and Fits
+# Tolerance grades for shafts and holes in micrometres (µm).
+# Source: ISO 286-2.
+
+# ---- Shaft tolerances (external) ----
+# h6 = precision shaft (close running / location fit)
+# g6 = tight clearance (sliding fit)
+# f7 = loose clearance (normal running fit)
+
+h6:
+  description: "Precision shaft tolerance (close running/location)"
+  nominal_ranges:
+    - up_to: 3
+      upper_dev: 0
+      lower_dev: -6
+    - up_to: 6
+      upper_dev: 0
+      lower_dev: -8
+    - up_to: 10
+      upper_dev: 0
+      lower_dev: -9
+    - up_to: 18
+      upper_dev: 0
+      lower_dev: -11
+    - up_to: 30
+      upper_dev: 0
+      lower_dev: -13
+    - up_to: 50
+      upper_dev: 0
+      lower_dev: -16
+    - up_to: 80
+      upper_dev: 0
+      lower_dev: -19
+  source: "ISO 286-2 h6"
+
+# ---- Hole tolerances (internal) ----
+# H7 = precision hole (close running / location fit)
+# H8 = standard hole
+# H9 = loose running fit
+
+H7:
+  description: "Precision hole tolerance (close running/location)"
+  nominal_ranges:
+    - up_to: 3
+      upper_dev: 10
+      lower_dev: 0
+    - up_to: 6
+      upper_dev: 12
+      lower_dev: 0
+    - up_to: 10
+      upper_dev: 15
+      lower_dev: 0
+    - up_to: 18
+      upper_dev: 18
+      lower_dev: 0
+    - up_to: 30
+      upper_dev: 21
+      lower_dev: 0
+    - up_to: 50
+      upper_dev: 25
+      lower_dev: 0
+    - up_to: 80
+      upper_dev: 30
+      lower_dev: 0
+  source: "ISO 286-2 H7"
+
+# ---- Common Fit Combinations ----
+fits:
+  H7_h6:
+    description: "Close-running / location fit (e.g. machine tool spindles)"
+    hole_grade: H7
+    shaft_grade: h6
+    clearance: "3–40 µm for diameters 3–18mm"
+    source: "ISO 286-2 H7/h6"
+  H7_g6:
+    description: "Sliding fit (e.g. shafts that move slowly under load)"
+    hole_grade: H7
+    shaft_grade: g6
+    clearance: "5–30 µm for diameters 3–18mm"
+    source: "ISO 286-2 H7/g6"
+  H8_f7:
+    description: "Normal running fit (e.g. general rotating shafts)"
+    hole_grade: H8
+    shaft_grade: f7
+    clearance: "10–50 µm for diameters 3–18mm"
+    source: "ISO 286-2 H8/f7"

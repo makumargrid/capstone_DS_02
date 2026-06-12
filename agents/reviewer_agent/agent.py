@@ -60,17 +60,16 @@ def _repair_instruction(c: dict) -> str:
                 f"the surface radius shrinks with height — ensure the feature "
                 f"extends beyond the surface at EVERY height. If this is a "
                 f"patterned feature, increase the radial reach (move at[0] outward "
-                f"or increase chord) or set lean_deg to 0 so the feature stays "
-                f"upright instead of leaning inward.")
+                f"or increase size) so the feature stays upright instead of "
+                f"leaning inward into the parent.")
     if claim == "parent_contact":
         return (f"Feature `{node}` has lost contact with its parent — "
                 f"{detail}. The feature is floating in empty space at some "
                 f"z-levels, which produces corrupted geometry from the boolean "
-                f"union. For blades on tapered hubs: set lean_deg to track the "
-                f"hub taper. lean_deg ≈ arctan((parent.r_base - parent.r_top) / "
-                f"parent.height). For example, r_base=50, r_top=15, height=60 "
-                f"→ lean_deg ≈ 30°. If lean_deg causes bore collision, reduce it "
-                f"by 5-10°.")
+                f"union. Position the feature so its inner edge stays within "
+                f"the parent surface across all z-levels. For tapered parents "
+                f"(cone/frustum), the surface radius shrinks with height — "
+                f"ensure the feature tracks this taper so it remains in contact.")
     if claim == "single_solid":
         return ("Geometry is not one connected solid. Make sub-features OVERLAP "
                 "their parent (embed 1–2mm, not just touch) so the boolean fuses "
@@ -138,7 +137,7 @@ def _decide(l2: dict, vision: dict | None, meshlib: dict | None) -> dict:
         # ALL failing checks are surfaced (most-blocking first). When several
         # checks fail there is nothing passing to protect, so giving the planner
         # the complete, node-keyed fix list converges far faster than one-at-a-time
-        # (which previously left the planner unaware of e.g. a 45mm-thick blade).
+        # (which previously left the planner unaware of e.g. an oversized feature).
         recs = [_repair_instruction(c) for c in failed]
         recommendation = ("Fix ALL of the following (most-blocking first); re-emit the full IR:\n"
                           + "\n".join(f"{i+1}. {r}" for i, r in enumerate(recs)))
@@ -169,11 +168,10 @@ def _discrepancies(l2: dict, vision: dict | None) -> list[str]:
     return out
 
 
-INSTRUCTION = """You are a senior CAD QA reviewer. You will be given a verdict
-already decided by deterministic geometry checks (the ground truth) plus the
-design intent and any advisory vision findings. Write a concise, professional
-one-paragraph rationale for the verdict for a human engineer. Do not change the
-verdict. Output ONLY JSON: {"narration": "..."}"""
+import os as _os
+_SKILL_DIR = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))), "skills", "reviewer")
+with open(_os.path.join(_SKILL_DIR, "SKILL.md")) as _f:
+    INSTRUCTION = _f.read()
 
 root_agent = Agent(
     name="adversarial_reviewer",

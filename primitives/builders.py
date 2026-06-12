@@ -17,7 +17,7 @@ import math
 import cadquery as cq
 
 from .params import (CylinderParams, ConeParams, BoxParams, HoleParams,
-                     SphereParams, TubeParams, BladeParams)
+                     SphereParams, TubeParams, ProfileParams)
 
 
 def _v(at):
@@ -61,32 +61,36 @@ def build_tube(p: TubeParams, ctx=None) -> cq.Solid:
     return outer.cut(inner)
 
 
-def build_blade(p: BladeParams, ctx=None) -> cq.Solid:
-    """Twisted lofted blade with optional radial lean for hub-surface tracking.
+def build_profile(p: ProfileParams, ctx=None) -> cq.Solid:
+    """2D sketch → operation: extrude (along +Z), revolve (around Z)."""
+    sketch = p.sketch or {}
+    stype = sketch.get("type", "circle")
+    sp = sketch.get("params", {})
 
-    lean_deg=0 (default): vertical blade — identical to original behaviour,
-    all existing tests pass unchanged.
+    # Build 2D sketch on XY plane
+    wp = cq.Workplane("XY").workplane(offset=p.at[2])
+    if stype == "rect":
+        w, h = sp.get("width", 10), sp.get("height", 10)
+        wp = wp.center(p.at[0], p.at[1]).rect(w, h)
+    elif stype == "circle":
+        r = sp.get("radius", 5)
+        wp = wp.center(p.at[0], p.at[1]).circle(r)
+    elif stype == "polygon":
+        sides = sp.get("sides", 6)
+        r = sp.get("radius", 5)
+        wp = wp.center(p.at[0], p.at[1]).polygon(sides, r)
+    else:
+        raise ValueError(f"Unknown sketch type '{stype}'")
 
-    lean_deg>0: each cross-section shifts its center radially inward by
-    tan(lean_deg) * (f * height), where f goes 0→1 from base to tip. This
-    tracks the surface of a tapered frustum hub and reduces geometric artifacts
-    in the blade-hub boolean union.
+    if p.operation == "extrude":
+        result = wp.extrude(p.depth)
+    elif p.operation == "revolve":
+        # Revolve around Z axis at x offset to create a solid
+        axis_offset = sketch.get("axis_offset", [0, 0])
+        result = wp.revolve(p.depth, (axis_offset[0], axis_offset[1], 0), (0, 0, 1))
+    else:
+        raise ValueError(f"Unknown profile operation '{p.operation}'")
 
-    Derived formula for a frustum hub:
-        lean_deg = degrees(arctan((hub.r_base - hub.r_top) / hub.height))
-    """
-    n = 8
-    lean_tan = math.tan(math.radians(p.lean_deg))
-    wires = []
-    for k in range(n):
-        f = k / (n - 1)
-        z = p.at[2] + f * p.height
-        # Blade center x: decreases with height when lean_deg > 0 (inward taper)
-        cx = p.at[0] - lean_tan * f * p.height
-        # Build rect at origin with twist, then move to final (cx, at[1], z)
-        w = (cq.Workplane("XY").workplane(offset=z)
-             .transformed(rotate=(0, 0, p.twist_deg * f))
-             .rect(p.chord, p.width).val())
-        w = w.moved(cq.Location(cq.Vector(cx, p.at[1], 0)))
-        wires.append(w)
-    return cq.Solid.makeLoft(wires, ruled=True)
+    return result.val() if isinstance(result, cq.Workplane) else result
+
+

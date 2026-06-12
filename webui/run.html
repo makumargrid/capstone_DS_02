@@ -1,37 +1,86 @@
-<!doctype html><html><head><meta charset=utf-8><title>Run · Geometry Agent Harness</title>
-<meta name=viewport content="width=device-width,initial-scale=1">
-<link rel=stylesheet href="/ui/static/style.css"></head><body>
-<header><h1><a href="/ui/index.html">◇ Harness</a> · <span id=rid></span></h1>
- <span id=state class="badge">connecting…</span></header>
-<nav class=tabs>
- <button data-tab=summary class=active>Summary</button>
- <button data-tab=edit>3D &amp; Edit</button>
- <button data-tab=actions>Actions</button>
-</nav>
-<main>
-	 <div id=summary class=panel>
-	   <div id=questionPanel class="question hidden">
-	     <h3>Planner question</h3>
-	     <div id=questionText></div>
-	     <textarea id=questionAnswer rows=2 placeholder="Answer the planner so the run can continue"></textarea>
-	     <button id=sendAnswer>Send answer</button>
-	     <div id=questionMsg class=msg></div>
-	   </div>
-	   <div id=errPanel class="errbox hidden"></div>
-   <h3>Live log</h3>
-   <pre id=log class=log>connecting…</pre>
-   <h3>Report</h3>
-   <iframe id=reportFrame title=report class=hidden></iframe>
-   <div id=reportWait class=wait>The full report appears here when the run finishes.</div>
- </div>
- <div id=edit class="panel hidden"><iframe id=viewerFrame title=viewer class=hidden></iframe><div id=editWait class=wait>3D editor appears once the run produces an APPROVED, editable model.</div></div>
- <div id=actions class="panel hidden">
-   <div class=card><h2>Iterate</h2><p>Send revision feedback — starts a new linked run.</p>
-     <textarea id=feedback rows=3 placeholder="e.g. make the blades thicker / fewer bolts / taller hub"></textarea>
-     <button id=iterate>Iterate</button></div>
-   <div class=card><h2>Acceptance</h2><p>Your judgment on the finished design (APPROVED by harness ≠ ACCEPTED by you).</p>
-     <button id=accept class=ok>Accept</button> <button id=reject class=bad>Reject</button>
-     <div id=actMsg class=msg></div></div>
- </div>
-</main>
-<script src="/ui/static/run.js"></script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Design Run — Geometry Agent Harness</title>
+  <link rel="stylesheet" href="/ui/static/style.css">
+</head>
+
+<body>
+
+  <header class="header">
+    <div>
+      <h1>Geometry <span>Agent</span> Harness</h1>
+      <p class="subtitle" id="run-subtitle">Run <span id="rid-display">—</span></p>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <span class="trust-badge" id="trust-badge" style="display:none">⏳ Processing</span>
+      <a href="/ui/index.html" class="btn btn-outline btn-sm">← Back</a>
+    </div>
+  </header>
+
+  <div class="container">
+
+    <!-- ── Progress ───────────────────────────────────────────────────────── -->
+    <div class="progress-bar" id="progress-bar">
+      <div class="progress-step" data-step="intent">Intent</div>
+      <div class="progress-step" data-step="plan">Plan</div>
+      <div class="progress-step" data-step="compile">Compile</div>
+      <div class="progress-step" data-step="inspect">Inspect</div>
+      <div class="progress-step" data-step="review">Review</div>
+      <div class="progress-step" data-step="done">Done</div>
+    </div>
+
+    <!-- ── Spec View ─────────────────────────────────────────────────────── -->
+    <div class="card" id="spec-card" style="display:none">
+      <h2>📋 Specification</h2>
+      <p style="color:var(--text-muted);margin-bottom:12px">What we'll build, based on your description and engineering
+        standards.</p>
+      <div id="spec-content"></div>
+    </div>
+
+    <!-- ── Plan Preview ──────────────────────────────────────────────────── -->
+    <div class="card" id="preview-card" style="display:none">
+      <h2>🎨 Plan Preview</h2>
+      <div id="plan-explanation" style="margin-bottom:12px"></div>
+      <div class="preview-grid" id="preview-images"></div>
+      <div class="action-bar">
+        <button class="btn btn-success" id="btn-approve" disabled>✅ Approve Plan</button>
+        <button class="btn btn-outline" id="btn-refine" disabled>✏️ Request Change</button>
+      </div>
+    </div>
+
+    <!-- ── Results ────────────────────────────────────────────────────────── -->
+    <div class="card" id="results-card" style="display:none">
+      <h2>📊 Results</h2>
+      <div id="checks-container"></div>
+      <div class="action-bar" style="margin-top:16px">
+        <a class="btn btn-outline btn-sm" id="download-stl" style="display:none">⬇ STL</a>
+        <a class="btn btn-outline btn-sm" id="download-step" style="display:none">⬇ STEP</a>
+        <a class="btn btn-outline btn-sm" id="download-ir" style="display:none">⬇ IR JSON</a>
+        <a class="btn btn-outline btn-sm" id="viewer-link" style="display:none">🔍 3D Viewer</a>
+      </div>
+    </div>
+
+    <!-- ── Certificate ───────────────────────────────────────────────────── -->
+    <div class="card" id="cert-card" style="display:none">
+      <h2>📜 Certification Report</h2>
+      <div id="cert-content"></div>
+    </div>
+
+    <!-- ── Log (collapsed) ────────────────────────────────────────────────── -->
+    <details class="card" style="margin-top:8px">
+      <summary style="cursor:pointer;font-weight:600">📄 Live Log</summary>
+      <pre id="log-output"
+        style="font-size:12px;color:var(--text-muted);white-space:pre-wrap;max-height:300px;overflow-y:auto;margin-top:8px">Waiting…</pre>
+    </details>
+
+  </div>
+
+  <footer class="footer">Geometry Agent Harness v2 · Deterministic verification · Standards-grounded</footer>
+  <script src="/ui/static/run.js"></script>
+</body>
+
+</html>

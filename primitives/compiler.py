@@ -33,8 +33,9 @@ from typing import Any
 
 import cadquery as cq
 
-from geometry_ir.models import Design
+from geometry_ir.models import Design, Feature
 from .registry import LEAF_BUILDERS
+from .anchoring import apply_pose, resolve_anchor
 
 logger = logging.getLogger("compiler")
 
@@ -70,9 +71,23 @@ def _bbox_lens(solid: cq.Solid) -> tuple[float, float, float]:
     return (round(bb.xlen, 4), round(bb.ylen, 4), round(bb.zlen, 4))
 
 
-def _build_leaf(ftype: str, params: dict, ctx: dict) -> cq.Solid:
+def _build_leaf(ftype: str, params: dict, ctx: dict, feat: Feature | None = None) -> cq.Solid:
+    """Build a leaf solid at canonical origin, then apply pose/anchor if present."""
     builder, model = LEAF_BUILDERS[ftype]
-    return builder(model.model_validate(params), ctx)
+    solid = builder(model.model_validate(params), ctx)
+
+    # Apply anchor or pose transforms
+    if feat is not None:
+        if feat.anchor and "to" in feat.anchor:
+            target_id = feat.anchor["to"]
+            target_solid = ctx.get("built_solids", {}).get(target_id)
+            if target_solid is not None:
+                pose = resolve_anchor(feat.anchor, target_solid, solid)
+                solid = apply_pose(solid, pose)
+        elif feat.pose:
+            solid = apply_pose(solid, feat.pose)
+
+    return solid
 
 
 def _build_pattern(feat, ctx: dict) -> list[cq.Solid]:
@@ -129,9 +144,10 @@ def compile_design(design: Design | dict) -> tuple[cq.Solid, list[FeatureProvena
 
     # ── TOPOLOGICAL SORT: unions first, cuts second ─────────────────────
     # Within each group, preserve declaration order so provenance IDs stay stable.
-    unions = [f for f in design.features if f.op != "cut"]
+    unions = [f for f in design.features if f.op not in ("cut", "fillet", "chamfer")]
     cuts = [f for f in design.features if f.op == "cut"]
-    ordered = unions + cuts
+    edges = [f for f in design.features if f.op in ("fillet", "chamfer")]
+    ordered = unions + edges + cuts
 
     result: cq.Solid | None = None
     provenance: list[FeatureProvenance] = []
@@ -139,13 +155,38 @@ def compile_design(design: Design | dict) -> tuple[cq.Solid, list[FeatureProvena
 
     for feat in ordered:
         mesh_only = False
-        if feat.type == "custom":
+        if feat.type == "fillet" and feat.op == "fillet":
+            # Apply fillet to all edges of the current result
+            if result is None:
+                raise ValueError("Cannot fillet without a previous solid")
+            radius = feat.params.get("radius", 1.0)
+            try:
+                result = result.fillet(radius, result.Edges())
+            except Exception as e:
+                raise ValueError(f"Fillet on '{feat.id}' failed: {e}") from e
+            feat_solid = result
+            feat_vol = result.Volume()
+            external_volume = feat_vol
+            contribution_ratio = 1.0
+        elif feat.type == "chamfer" and feat.op == "chamfer":
+            if result is None:
+                raise ValueError("Cannot chamfer without a previous solid")
+            length = feat.params.get("length", 1.0)
+            try:
+                result = result.chamfer(length, length, result.Edges())
+            except Exception as e:
+                raise ValueError(f"Chamfer on '{feat.id}' failed: {e}") from e
+            feat_solid = result
+            feat_vol = result.Volume()
+            external_volume = feat_vol
+            contribution_ratio = 1.0
+        elif feat.type == "custom":
             instances = _run_custom(feat.params)
             mesh_only = True
         elif feat.type in ("circular_pattern", "linear_pattern"):
             instances = _build_pattern(feat, ctx)
         else:
-            instances = [_build_leaf(feat.type, feat.params, ctx)]
+            instances = [_build_leaf(feat.type, feat.params, ctx, feat=feat)]
 
         if not instances:
             raise ValueError(f"feature '{feat.id}' produced no geometry")
@@ -197,6 +238,11 @@ def compile_design(design: Design | dict) -> tuple[cq.Solid, list[FeatureProvena
             mesh_only=mesh_only, instance_solids=instances,
             external_volume=round(external_volume, 4),
             contribution_ratio=round(contribution_ratio, 4)))
+
+        # Store built solid for anchor resolution by downstream features
+        if "built_solids" not in ctx:
+            ctx["built_solids"] = {}
+        ctx["built_solids"][feat.id] = feat_solid
 
     if result is None:
         raise ValueError("compilation produced an empty solid")

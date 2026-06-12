@@ -1,0 +1,7 @@
+type: tube
+display_name: Tube / Hollow Cylinder
+builder: build_tube
+param_model: TubeParams
+forgecad: tube
+checks:
+  - uniform_thickness_mm

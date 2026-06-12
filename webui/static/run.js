@@ -1,90 +1,185 @@
-// webui/static/run.js — run page: live status (WS), live LOG (poll), error panel,
-// report + 3D viewer revealed only when their artifacts exist.
-const id=new URLSearchParams(location.search).get('id');
-document.getElementById('rid').textContent=id||'?';
-const stateEl=document.getElementById('state');
-const logEl=document.getElementById('log');
-const errEl=document.getElementById('errPanel');
-let terminal=false, reportShown=false, viewerShown=false, artifacts=[];
-let pendingQuestion=null;
+/* ═══════════════════════════════════════════════════════════════════════════
+   run.js — Run page: status polling, spec table, plan preview, results, certificate.
+   ═══════════════════════════════════════════════════════════════════════════ */
 
-function setState(s){stateEl.textContent=s; stateEl.className="badge "+s; terminal=["approved","completed","failed"].includes(s);}
+const RID = new URLSearchParams(window.location.search).get('rid');
+if (!RID) { document.body.innerHTML = '<p style="text-align:center;padding:40px">No run ID provided.</p>'; throw new Error('No RID'); }
+document.getElementById('rid-display').textContent = RID;
 
-// tabs
-document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('active')); b.classList.add('active');
-  ['summary','edit','actions'].forEach(p=>document.getElementById(p).classList.toggle('hidden',p!==b.dataset.tab));
-});
+const STAGES = ['intent', 'plan', 'compile', 'inspect', 'review', 'done'];
+let lastState = 'queued';
+let seenArtifacts = new Set();
 
-const ERR=/(ERROR|Traceback|RuntimeError|❌|HALT|Out of attempts|REDESIGN)/;
-function renderLog(text){
-  logEl.textContent=text||"(no log yet)"; logEl.scrollTop=logEl.scrollHeight;
-  const errs=(text||"").split("\n").filter(l=>ERR.test(l));
-  if(errs.length){ errEl.classList.remove('hidden'); errEl.textContent="Issues detected in this run:\n"+errs.slice(-12).join("\n"); }
-}
-function renderQuestion(q){
-  const panel=document.getElementById('questionPanel');
-  if(q && q.id){
-    pendingQuestion=q;
-    panel.classList.remove('hidden');
-    document.getElementById('questionText').textContent=q.question||"Planner needs clarification.";
-    document.getElementById('questionMsg').textContent="";
-  }else{
-    pendingQuestion=null;
-    panel.classList.add('hidden');
-    document.getElementById('questionAnswer').value="";
+// ── Progress ──────────────────────────────────────────────────────────────
+function setProgress(stage) {
+  const idx = STAGES.indexOf(stage);
+  document.querySelectorAll('.progress-step').forEach((el, i) => {
+    el.className = 'progress-step';
+    if (i < idx) el.classList.add('done');
+    else if (i === idx) el.classList.add('active');
+  });
+  if (stage === 'done') {
+    document.querySelectorAll('.progress-step').forEach(el => el.className = 'progress-step done');
   }
 }
-function reveal(){
-  if(!reportShown && artifacts.includes("report.html")){
-    document.getElementById('reportFrame').src='/designs/'+id+'/report';
-    document.getElementById('reportFrame').classList.remove('hidden');
-    document.getElementById('reportWait').classList.add('hidden'); reportShown=true;
-  }
-  if(!viewerShown && artifacts.includes("forgecad_handoff")){
-    document.getElementById('viewerFrame').src='/designs/'+id+'/viewer';
-    document.getElementById('viewerFrame').classList.remove('hidden');
-    document.getElementById('editWait').classList.add('hidden'); viewerShown=true;
-  } else if(terminal && !artifacts.includes("forgecad_handoff")){
-    document.getElementById('editWait').textContent="No editable model: this run did not reach an APPROVED design. See the live log / report for why.";
-  }
-}
-async function tick(){
-  try{
-	    const s=await (await fetch('/designs/'+id+'/log')).json();
-	    setState(s.state); renderLog(s.log);
-	    const st=await (await fetch('/designs/'+id+'/status')).json(); artifacts=st.artifacts||[];
-	    renderQuestion(st.pending_question||s.pending_question);
-	    if(s.error){ errEl.classList.remove('hidden'); errEl.textContent="Run error: "+s.error; }
-    reveal();
-  }catch(e){}
-  if(!terminal) setTimeout(tick,1500); else setTimeout(tick,1500); // one more pass after terminal
-  if(terminal && reportShown){ return; }
-}
-// WS for snappy state badge; log/report via tick()
-try{ const proto=location.protocol==='https:'?'wss':'ws';
-	  const ws=new WebSocket(`${proto}://${location.host}/ws/designs/${id}/stream`);
-	  ws.onmessage=e=>{const f=JSON.parse(e.data); if(f.state)setState(f.state); if(f.artifacts)artifacts=f.artifacts; renderQuestion(f.pending_question);};
-	}catch(e){}
 
-// actions
-document.getElementById('iterate').onclick=async()=>{
-  const fb=document.getElementById('feedback').value.trim();
-  const r=await fetch('/designs/'+id+'/iterate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({feedback:fb})});
-  if(r.ok)location.href='/ui/run.html?id='+(await r.json()).run_id;
-};
-function decide(accepted){return async()=>{
-  const note=accepted?null:(window.prompt("Reason for rejection (optional):")||null);
-  const r=await fetch('/designs/'+id+'/approve',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accepted,note})});
-  document.getElementById('actMsg').textContent=r.ok?("recorded: "+(accepted?"ACCEPTED":"REJECTED")):("error "+r.status);
-};}
-document.getElementById('accept').onclick=decide(true);
-document.getElementById('reject').onclick=decide(false);
-document.getElementById('sendAnswer').onclick=async()=>{
-  if(!pendingQuestion)return;
-  const answer=document.getElementById('questionAnswer').value.trim();
-  if(!answer){document.getElementById('questionMsg').textContent="enter an answer first.";return;}
-  const r=await fetch('/designs/'+id+'/answer',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question_id:pendingQuestion.id,answer})});
-  document.getElementById('questionMsg').textContent=r.ok?"answer sent.":"error "+r.status;
-};
-tick();
+// ── Trust Badge ───────────────────────────────────────────────────────────
+function setTrustBadge(trustLabel) {
+  const el = document.getElementById('trust-badge');
+  el.style.display = 'inline-flex';
+  if (trustLabel === 'requires_review' || trustLabel === 'requires review') {
+    el.className = 'trust-badge requires-review';
+    el.textContent = '⚠️ Requires Human Review';
+  } else if (trustLabel === 'flagged') {
+    el.className = 'trust-badge flagged';
+    el.textContent = '🚩 Flagged';
+  } else {
+    el.className = 'trust-badge certified';
+    el.textContent = '✅ Certified';
+  }
+}
+
+// ── Spec Table ────────────────────────────────────────────────────────────
+function renderSpec(spec) {
+  if (!spec || !spec.length) return '<p style="color:var(--text-muted)">No specification available.</p>';
+  let html = '<table class="spec-table"><tr><th>Requirement</th><th>Value</th><th>Standard</th></tr>';
+  spec.forEach(r => {
+    const val = r.expected != null ? r.expected : r.description || '—';
+    const src = r.source || '';
+    html += `<tr><td>${r.description || r.claim + ': ' + r.target}</td><td><strong>${val}</strong></td><td class="source-citation">${src ? '↗ ' + src : ''}</td></tr>`;
+  });
+  html += '</table>';
+  return html;
+}
+
+// ── Checks ────────────────────────────────────────────────────────────────
+function renderChecks(checks) {
+  if (!checks || !checks.length) return '<p style="color:var(--text-muted)">No check results yet.</p>';
+  return checks.map(c => {
+    const icon = c.passed ? '<span class="check-icon check-pass">✅</span>' : '<span class="check-icon check-fail">❌</span>';
+    const detail = c.detail ? ` — ${c.detail}` : '';
+    return `<div class="check-row">${icon} <strong>${c.node}.${c.claim}</strong>: ${c.measured} ${c.expected ? '(expected ' + c.expected + ')' : ''}${detail}</div>`;
+  }).join('');
+}
+
+// ── Certificate ───────────────────────────────────────────────────────────
+function renderCert(certificate, trustLabel) {
+  if (!certificate) return '<p style="color:var(--text-muted)">No certificate available.</p>';
+  let html = '<p style="margin-bottom:8px">';
+  html += `<span class="trust-badge ${trustLabel === 'certified' ? 'certified' : 'requires-review'}">`;
+  html += trustLabel === 'certified' ? '✅ Certified' : '⚠️ Requires Human Review';
+  html += '</span></p>';
+  html += '<table class="spec-table"><tr><th>Check</th><th>Result</th><th>Count</th></tr>';
+  (certificate.checks || []).forEach(c => {
+    html += `<tr><td>${c.check}</td><td>${c.passed ? '✅ Pass' : '❌ Fail'}</td><td>${c.count}</td></tr>`;
+  });
+  html += '</table>';
+  if (certificate.standards_used) html += `<p style="margin-top:8px;color:var(--success);font-size:12px">Standards: ${certificate.standards_used.join(', ')}</p>`;
+  if (certificate.meshlib_battery) html += `<p style="color:var(--text-muted);font-size:12px">MeshLib deterministic battery ✓</p>`;
+  return html;
+}
+
+// ── Main Poll Loop ────────────────────────────────────────────────────────
+async function poll() {
+  try {
+    const resp = await fetch(`/designs/${RID}/status`);
+    const status = await resp.json();
+    const state = status.state || 'queued';
+    const artifacts = status.artifacts || [];
+
+    // Update trust badge from manifest
+    if (artifacts.includes('manifest.json') && !seenArtifacts.has('manifest')) {
+      try {
+        const mf = await fetch(`/designs/${RID}/artifacts/manifest.json`).then(r => r.json());
+        if (mf.trust_label) setTrustBadge(mf.trust_label);
+        if (mf.certificate) document.getElementById('cert-content').innerHTML = renderCert(mf.certificate, mf.trust_label);
+        document.getElementById('cert-card').style.display = 'block';
+        if (mf.requires_review) setTrustBadge('requires_review');
+      } catch (e) { /* manifest not ready yet */ }
+      seenArtifacts.add('manifest');
+    }
+
+    // Progress
+    if (state === 'approved' || state === 'completed') setProgress('done');
+    else if (state === 'running') {
+      if (artifacts.some(a => a.includes('reviewer_verdict'))) setProgress('review');
+      else if (artifacts.some(a => a.includes('solid_inspection'))) setProgress('inspect');
+      else if (artifacts.some(a => a.includes('model.stl'))) setProgress('compile');
+      else if (artifacts.some(a => a.includes('ir.json'))) setProgress('plan');
+      else setProgress('intent');
+    }
+
+    // Spec
+    if (artifacts.includes('01b_spec.json') && !seenArtifacts.has('spec')) {
+      try {
+        const spec = await fetch(`/designs/${RID}/artifacts/01b_spec.json`).then(r => r.json());
+        document.getElementById('spec-content').innerHTML = renderSpec(spec);
+        document.getElementById('spec-card').style.display = 'block';
+      } catch (e) { /* not ready */ }
+      seenArtifacts.add('spec');
+    }
+
+    // Plan preview — show IR explanation when available
+    if (artifacts.some(a => a.includes('ir.json')) && !seenArtifacts.has('ir')) {
+      try {
+        const ir = await fetch(`/designs/${RID}/artifacts/ir.json`).then(r => r.json());
+        if (ir && ir.features) {
+          document.getElementById('plan-explanation').textContent =
+            `Design: ${ir.features.length} features, envelope ${ir.envelope?.x_mm}×${ir.envelope?.y_mm}×${ir.envelope?.z_mm}mm.`;
+        }
+        document.getElementById('preview-card').style.display = 'block';
+      } catch (e) { /* not ready */ }
+      seenArtifacts.add('ir');
+    }
+
+    // View images
+    if (artifacts.some(a => a.startsWith('09_')) && !seenArtifacts.has('views')) {
+      const viewFiles = artifacts.filter(a => a.startsWith('09_') && a.endsWith('.png'));
+      const imgs = viewFiles.map(f => `<img src="/designs/${RID}/artifacts/${f}" alt="${f}">`).join('');
+      document.getElementById('preview-images').innerHTML = imgs || '<p>No preview images</p>';
+      document.getElementById('btn-approve').disabled = false;
+      document.getElementById('btn-refine').disabled = false;
+      seenArtifacts.add('views');
+    }
+
+    // Results
+    if (artifacts.includes('05_outer1_solid_inspection.json') && !seenArtifacts.has('inspect')) {
+      try {
+        const l2 = await fetch(`/designs/${RID}/artifacts/05_outer1_solid_inspection.json`).then(r => r.json());
+        document.getElementById('checks-container').innerHTML = renderChecks(l2.checks);
+        document.getElementById('results-card').style.display = 'block';
+      } catch (e) { /* not ready */ }
+      seenArtifacts.add('inspect');
+    }
+
+    // Downloads
+    if (artifacts.some(a => a.includes('model.stl'))) {
+      const stl = artifacts.find(a => a.includes('.stl') && !a.includes('step'));
+      const step = artifacts.find(a => a.includes('.step'));
+      if (stl) { const el = document.getElementById('download-stl'); el.href = `/designs/${RID}/artifacts/${stl}`; el.style.display = 'inline-flex'; }
+      if (step) { const el = document.getElementById('download-step'); el.href = `/designs/${RID}/artifacts/${step}`; el.style.display = 'inline-flex'; }
+      const el = document.getElementById('viewer-link');
+      el.href = `/designs/${RID}/viewer`;
+      el.style.display = 'inline-flex';
+    }
+    if (artifacts.includes('ir.json')) {
+      const el = document.getElementById('download-ir');
+      el.href = `/designs/${RID}/artifacts/ir.json`;
+      el.style.display = 'inline-flex';
+    }
+
+    // Log
+    try {
+      const logResp = await fetch(`/designs/${RID}/log`);
+      const logData = await logResp.json();
+      document.getElementById('log-output').textContent = logData.log || 'No log data';
+    } catch (e) { /* log not available */ }
+
+    lastState = state;
+  } catch (e) {
+    console.error('Poll error:', e);
+  }
+}
+
+poll();
+setInterval(poll, 2000);

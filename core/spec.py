@@ -2,20 +2,19 @@
 core/spec.py — the independent intent contract (Phase 1).
 
 WHY: the planner used to write its OWN acceptance asserts, so it could converge
-     by declaring a trivial bar (e.g. a "centrifugal impeller" became 7 flat
-     plates because the only blade claim was count=7). The Spec fixes that: it
-     is extracted from the prompt INDEPENDENTLY of the planner, frozen, and used
-     as the acceptance contract. The planner must COVER it; it cannot weaken it.
+     by declaring a trivial bar. The Spec fixes that: it is extracted from the
+     prompt INDEPENDENTLY of the planner, frozen, and used as the acceptance
+     contract. The planner must COVER it; it cannot weaken it.
 
 WHAT:
   Requirement   one checkable intent item {id, description, claim, target,
                 expected, param, tolerance, severity}.
-  extract_spec(prompt) -> [Requirement]  (LLM via core.llm_client + deterministic
-                domain augmentation; falls back to a regex/keyword spec offline).
+  extract_spec(prompt) -> [Requirement]  (LLM via core.llm_client; falls back to
+                a regex/keyword spec offline).
   check_coverage(spec, l2_checks, design) -> {covered, missing[], report[]}
                 deterministic: each REQUIRED requirement must be satisfied by a
                 passing L2 check (count/taper/bore/thickness) OR by IR structure
-                (feature_present, swept-blade, named dimension param).
+                (feature_present, named dimension param).
 
 CALLED BY: pipeline.py (extract once up front; coverage-gate before APPROVED).
 CALLS: core/llm_client.call_llm, core/model_config.get_model_name.
@@ -25,34 +24,28 @@ import re
 import json
 
 # claim vocabulary the Spec speaks (superset of L2 claims + structural/qualitative)
-_CLAIMS = {"feature_present", "count", "swept", "taper", "bore_diameter_mm",
+_CLAIMS = {"feature_present", "count", "taper", "bore_diameter_mm",
            "uniform_thickness_mm", "dimension"}
-
-# Domains whose bladed/vaned features are aerodynamically SWEPT/CURVED, not flat.
-_SWEPT_DOMAINS = ("impeller", "turbine", "compressor", "propeller", "fan",
-                  "rotor", "pump", "screw", "auger", "turbofan")
-_BLADE_WORDS = ("blade", "vane", "fin", "flute", "wing")
 
 _EXTRACT_INSTRUCTION = """You extract a FIXED acceptance SPEC from a CAD request.
 You are NOT the designer — you only list what the finished part MUST satisfy, so a
 separate checker can verify it. Be faithful to the user's intent and to obvious
-domain meaning (a "centrifugal impeller" has CURVED/SWEPT aerodynamic blades, not
-flat plates; a "gear" has teeth; an "enclosure" is hollow).
+domain meaning (a "gear" has teeth; an "enclosure" is hollow).
 
 Output ONLY JSON: {"requirements": [ ... ]}. Each requirement:
   {"id","description","claim","target","expected","param","tolerance","severity"}
-  claim ∈ feature_present | count | swept | taper | bore_diameter_mm |
+  claim ∈ feature_present | count | taper | bore_diameter_mm |
           uniform_thickness_mm | dimension
-  target = the feature/role name (e.g. "hub","blades","bore","body","teeth").
+  target = the feature/role name (e.g. "hub","bore","body","teeth","holes").
   expected = number/bool/string or null; param (for dimension) e.g.
              "base_diameter_mm"/"top_diameter_mm"/"height_mm"; tolerance = mm or null;
   severity = "required" (must hold) or "preferred".
 
 CRITICAL CONSTRAINTS (violations make requirements impossible to verify):
 1. `feature_present` targets MUST be a SINGLE LOWERCASE WORD that names a concrete
-   geometry feature (hub, bore, blades, teeth, holes, fins, walls, body, shaft, gear,
+   geometry feature (hub, bore, teeth, holes, fins, walls, body, shaft, gear,
    housing, bracket, enclosure, lid). Do NOT use compound names, abstract concepts, or
-   domain jargon like "centrifugal_impeller_form", "smooth_surfaces", "aerodynamic_form",
+   domain jargon like "smooth_surfaces", "aerodynamic_form",
    "performance_surfaces". If you cannot name it with a single concrete word, skip it.
 2. `dimension` claims MUST only capture dimensions EXPLICITLY stated as numbers in the
    prompt. Do NOT infer or calculate derived values (e.g., do not compute tip_diameter
@@ -63,43 +56,16 @@ CRITICAL CONSTRAINTS (violations make requirements impossible to verify):
    `"expected": "outward_top"` when wider at top. Do NOT use `true` or `false`."""
 
 
-def _augment_domain(prompt: str, reqs: list[dict]) -> list[dict]:
-    """Deterministic domain knowledge: bladed rotating machines need SWEPT blades.
-    Ensures the laziest 'flat plate' interpretation cannot satisfy the spec."""
-    pl = prompt.lower()
-    if any(d in pl for d in _SWEPT_DOMAINS) and any(b in pl for b in _BLADE_WORDS):
-        target = next((r.get("target") for r in reqs
-                       if r.get("claim") == "count" and r.get("target")), "blades")
-        if not any(r.get("claim") == "swept" for r in reqs):
-            reqs.append({"id": f"r{len(reqs)+1}", "claim": "swept", "target": target,
-                         "expected": True, "param": None, "tolerance": None,
-                         "severity": "required",
-                         "description": f"{target} must be swept/curved (aerodynamic), not flat"})
-        # PROTRUSION: rotating bladed parts must have features that visibly protrude
-        if not any(r.get("claim") == "protrusion" and r.get("target") == target for r in reqs):
-            reqs.append({"id": f"r{len(reqs)+1}", "claim": "protrusion", "target": target,
-                         "expected": True, "param": None, "tolerance": None,
-                         "severity": "required",
-                         "description": f"{target} must visibly protrude beyond the hub surface"})
-        # CONTACT: features must maintain contact with parent across full height
-        if not any(r.get("claim") == "contact" and r.get("target") == target for r in reqs):
-            reqs.append({"id": f"r{len(reqs)+1}", "claim": "contact", "target": target,
-                         "expected": True, "param": None, "tolerance": None,
-                         "severity": "required",
-                         "description": f"{target} must maintain contact with hub surface across full height"})
-    return reqs
-
-
 def _fallback_spec(prompt: str) -> list[dict]:
-    """Offline spec: counts, dimensions, bores, taper, and swept via regex/keywords.
+    """Offline spec: counts, dimensions, bores, and taper via regex/keywords.
     Used when the LLM-based extract_spec is unavailable. Covers enough to make the
     coverage gate meaningful even during a Gemini outage."""
     reqs: list[dict] = []
 
-    # --- Count patterns: "7 blades", "4 bolt holes", "20 teeth" ---
+    # --- Count patterns: "7 teeth", "4 bolt holes", "20 fins" ---
     for m in re.finditer(r"(\d+)\s+(?:[a-z]+\s+)?([a-z]+?)s?\b", prompt.lower()):
         n, word = int(m.group(1)), m.group(2)
-        if word.rstrip("s") in [w for w in _BLADE_WORDS] + list(_CONCRETE_TARGETS):
+        if word.rstrip("s") in list(_CONCRETE_TARGETS):
             reqs.append({"id": f"r{len(reqs)+1}", "claim": "count", "target": word,
                           "expected": n, "param": None, "tolerance": None,
                           "severity": "required", "description": f"{n} {word}"})
@@ -131,14 +97,8 @@ def _fallback_spec(prompt: str) -> list[dict]:
                       "expected": "outward_base", "param": None, "tolerance": None,
                       "severity": "required", "description": "hub tapers outward at base"})
 
-    # --- Swept: keyword presence (also handled by _augment_domain) ---
-    if not any(r.get("claim") == "swept" for r in reqs):
-        if re.search(r"swept|curved|twist(?:ed)?", prompt.lower()):
-            reqs.append({"id": f"r{len(reqs)+1}", "claim": "swept", "target": "blades",
-                          "expected": True, "param": None, "tolerance": None,
-                          "severity": "required", "description": "blades must be swept/curved"})
 
-    return _augment_domain(prompt, reqs)
+    return reqs
 
 
 # Concrete feature names the check_coverage engine can actually resolve.
@@ -191,7 +151,7 @@ def extract_spec(prompt: str) -> list[dict]:
         reqs = filtered
     except Exception:
         reqs = _fallback_spec(prompt)
-    return _augment_domain(prompt, reqs)
+    return reqs
 
 
 # ── Coverage (deterministic) ────────────────────────────────────────────────
@@ -241,31 +201,6 @@ def check_coverage(spec: list[dict], l2_checks: list[dict], design) -> dict:
         if claim == "feature_present":
             ok = _match(target, feats) is not None
             why = "" if ok else f"no feature matching role '{target}'"
-        elif claim == "protrusion":
-            f = _match(target, feats)
-            nodes = {target, (f or {}).get("id")}
-            cand = [c for c in l2_checks if c.get("passed")
-                    and c.get("claim") == "feature_contributes"
-                    and c.get("node") in nodes]
-            ok, why = bool(cand), ("" if cand else
-                         f"no passing 'feature_contributes' check on '{target}' — "
-                         f"feature is likely embedded inside its parent")
-        elif claim == "contact":
-            f = _match(target, feats)
-            nodes = {target, (f or {}).get("id")}
-            cand = [c for c in l2_checks if c.get("passed")
-                    and c.get("claim") == "parent_contact"
-                    and c.get("node") in nodes]
-            ok, why = bool(cand), ("" if cand else
-                         f"no passing 'parent_contact' check on '{target}' — "
-                         f"feature may be detached from parent at some heights")
-        elif claim == "swept":
-            f = _match(target, feats)
-            if f and f.get("type") in ("circular_pattern", "linear_pattern"):
-                f = (f.get("params") or {}).get("feature")
-            tw = (f or {}).get("params", {}).get("twist_deg", 0) if f else 0
-            ok = bool(f) and f.get("type") == "blade" and (tw or 0) != 0
-            why = "" if ok else f"'{target}' is not a swept blade (need type=blade, twist_deg≠0)"
         elif claim == "dimension":
             f = _match(target, feats)
             meas = _dim_from_params(f, r.get("param") or "") if f else None
@@ -329,10 +264,7 @@ def coverage_feedback(missing: list[dict]) -> str:
     for m in missing:
         why = m.get("why") or ""
         hint = ""
-        if "swept blade" in why:
-            hint = (" → use the `blade` primitive with twist_deg≠0 (NOT a flat `box`); "
-                    "declare its `uniform_thickness_mm` and keep the pattern count.")
-        elif swap_detected and ("base_diameter_mm" in why or "top_diameter_mm" in why):
+        if swap_detected and ("base_diameter_mm" in why or "top_diameter_mm" in why):
             hint = (f" → r_base and r_top are SWAPPED. r_base is the radius at z=0 "
                     f"(the physical bottom of the part), r_top is at z=height (the top). "
                     f"For base_diam={base_exp:.0f}mm set r_base={base_exp/2:.0f}; "
@@ -358,7 +290,7 @@ Rule:
   function/material, removable, or not one continuous solid) — e.g. an AC unit
   (indoor box + outdoor box + fan), an enclosure + lid, a shaft + housing.
 - PART (monolithic) if the features share material / form ONE continuous solid —
-  e.g. an impeller (hub+blades+bore are one piece), a bracket with holes, a gear.
+  e.g. a bracket (base plate + gusset + holes are one piece), a gear with teeth.
 Output ONLY JSON: {"mode":"part"|"assembly","components":[{"id","description"}],
 "rationale":"..."}. For PART, components=[]. Use short role ids (e.g. indoor, fan)."""
 

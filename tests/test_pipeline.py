@@ -2,7 +2,7 @@
 
 These exercise the deterministic spine the pipeline runs after the planner:
 validate_plan → compile_design → inspect_solid → run_review, on two distinct
-object classes (impeller, bracket) with ZERO shape-specific code, plus a render
+object classes with ZERO shape-specific code, plus a render
 smoke test. The LLM planner/vision steps are covered separately and are
 best-effort in the live pipeline."""
 import copy
@@ -17,7 +17,7 @@ from primitives import compile_design, export_solid  # noqa: E402
 from verification import inspect_solid  # noqa: E402
 from verification import render_views  # noqa: E402
 from agents.reviewer_agent import run_review  # noqa: E402
-from tests.fixtures import impeller_ir, bracket_ir  # noqa: E402
+from tests.fixtures import pattern_box_ir, bracket_ir  # noqa: E402
 
 
 def _harness(ir, min_wall=1.0):
@@ -27,8 +27,8 @@ def _harness(ir, min_wall=1.0):
     return solid, run_review(ir, l2)
 
 
-def test_impeller_approved_end_to_end():
-    _, v = _harness(impeller_ir())
+def test_pattern_box_approved_end_to_end():
+    _, v = _harness(pattern_box_ir())
     assert v["decision"] == "APPROVED", v
 
 
@@ -45,7 +45,7 @@ def test_bracket_wrong_bolt_count_redesign():
 
 
 def test_both_objects_render_headless():
-    for ir in (impeller_ir(), bracket_ir()):
+    for ir in (pattern_box_ir(), bracket_ir()):
         solid, _ = compile_design(ir)
         with tempfile.TemporaryDirectory() as d:
             paths = render_views(solid, d)

@@ -1,0 +1,28 @@
+# Inspection thresholds for verification/solid_inspector.py.
+# Changing any value here changes the corresponding check behaviour on restart.
+# Values are preserved exactly from the pre-config extraction (Prompt 2, Invariant 2).
+
+envelope:
+  rel_tol: 0.07
+
+feature_contributes:
+  contribution_ratio_floor: 0.20
+
+uniform_thickness:
+  band_frac: 0.25
+  min_band_mm: 0.3
+
+parent_contact:
+  gap_tolerance_mm: 2.0
+
+bore:
+  void_volume_fraction: 0.05
+  probe_diameter_fraction: 0.9
+
+invariants:
+  hole_edge_clearance_mm: 1.0
+  feature_clearance_mm: 0.5
+  self_intersecting: true
+  watertight: true
+  min_wall_mm: null
+  envelope_containment: true

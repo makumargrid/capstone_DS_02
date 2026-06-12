@@ -12,9 +12,9 @@ WHAT:
     returns surgical repair text with exact parameter values.
 
 PRINCIPLE: All math is derived from the compiled geometry. No domain knowledge.
-           Works for ANY feature type on ANY parent — blade on frustum, boss on box,
-           rib on cylinder, fin on sphere. The code doesn't know what an "impeller"
-           or "blade" is — it just measures vertices and radi.
+           Works for ANY feature type on ANY parent — boss on box, rib on cylinder,
+           fin on sphere. The code doesn't need domain knowledge — it just measures
+           vertices and radii.
 
 CALLED BY: pipeline.py (after L2 inspection, to augment reviewer feedback).
 CALLS: cadquery (for vertex/hull queries).
@@ -126,44 +126,7 @@ def _translate_envelope(node: str, claim: str, measured: float, expected: float,
         _, leaf_feat, leaf_type, leaf_params = _find_driving_pattern(
             design, prov_by_id)
 
-        if leaf_type == "blade":
-            at = leaf_params.get("at", [0, 0, 0])
-            chord = leaf_params.get("chord", 0)
-            current_max_r = at[0] + chord / 2.0
-            target_max_r = expected / 2.0
-            delta_needed = round(target_max_r - current_max_r, 1)
-
-            options = []
-            if delta_needed > 0:
-                # Need to increase radial reach
-                new_at = round(target_max_r - chord / 2.0, 1)
-                option_a = f"(a) Keep chord={chord}mm, set at[0]={new_at}mm → max_radius={new_at + chord/2}mm = diameter={expected}mm"
-                options.append(option_a)
-
-                new_chord = round(2 * (target_max_r - at[0]), 1)
-                if new_chord > 0:
-                    option_b = f"(b) Keep at[0]={at[0]}mm, set chord={new_chord}mm → max_radius={at[0] + new_chord/2}mm = diameter={expected}mm"
-                    options.append(option_b)
-
-                options.append(f"(c) Keep geometry as-is, set envelope x_mm=y_mm={round(measured, 0)}mm with tolerance")
-            else:
-                # Need to decrease or match
-                new_chord = round(2 * (target_max_r - at[0]), 1)
-                if new_chord > 0:
-                    option_a = f"(a) Reduce chord to {new_chord}mm to match declared envelope"
-                    options.append(option_a)
-                option_b = f"(b) Increase envelope to match built diameter {round(measured, 0)}mm"
-                options.append(option_b)
-
-            heading = (
-                f"To reach {expected}mm envelope diameter from current {round(measured, 1)}mm: "
-                f"the blade max radius must be ≥{expected/2}mm. "
-                f"Current blade: at[0]={at[0]}mm, chord={chord}mm → max_radius={round(current_max_r, 1)}mm. "
-                f"Need +{delta_needed}mm more radial reach."
-            )
-            return heading + "\n  " + "\n  ".join(options)
-
-        elif leaf_type in ("box", "cylinder"):
+        if leaf_type in ("box", "cylinder"):
             params_str = ", ".join(f"{k}={v}" for k, v in leaf_params.items())
             return (
                 f"Envelope diameter {round(measured, 1)}mm vs expected {expected}mm. "
@@ -229,27 +192,10 @@ def _translate_embedded(node: str, contribution_ratio: float,
         delta = round(parent_max_r - feat_constraint["max_r"] + 2, 1)
         feat = next((f for f in design.features if f.id == node), None)
         if feat and feat.type == "circular_pattern":
-            sub = feat.params.get("feature", {})
-            sub_type = sub.get("type", "")
-            sub_params = sub.get("params", {})
-            current_at = sub_params.get("at", [0, 0, 0])[0]
-            current_chord = sub_params.get("chord", 0)
-
-            if sub_type == "blade":
-                new_at = round(current_at + delta, 1)
-                new_chord = round(2 * (feat_constraint["max_r"] + delta - current_at), 1)
-                lines.append(
-                    f"Options: (a) Move blade outward: at[0] = {new_at}mm (was {current_at})"
-                )
-                if new_chord > 0:
-                    lines.append(
-                        f"         (b) Increase chord to {new_chord}mm (was {current_chord})"
-                    )
-            else:
-                lines.append(
-                    f"Move '{node}' outward by at least {delta}mm "
-                    f"(increase at[0] or equivalent dimension)"
-                )
+            lines.append(
+                f"Move '{node}' outward by at least {delta}mm "
+                f"(increase at[0] or equivalent dimension)"
+            )
     else:
         lines.append(
             "The feature's max radius already exceeds the parent. "
@@ -308,28 +254,19 @@ def _translate_bore_obstruction(node: str, residual_material: float,
                 sub = ov_params.get("feature", {})
                 sub_type = sub.get("type", "")
                 sub_params = sub.get("params", {})
-                if sub_type == "blade":
-                    at0 = sub_params.get("at", [0, 0, 0])[0]
-                    chord = sub_params.get("chord", 0)
-                    lean = sub_params.get("lean_deg", 0)
-                    min_r = at0 - chord / 2.0
+                at0 = sub_params.get("at", [0, 0, 0])[0] if isinstance(sub_params.get("at"), list) else 0
+                length = sub_params.get("length", 0)
+                min_r = max(0, at0 - length / 2.0)
+                lines.append(
+                    f"  - '{ov_id}' ({sub_type} pattern): at[0]={at0}mm, "
+                    f"min radius ≈ {round(min_r, 1)}mm (bore radius = {bore_radius}mm)"
+                )
+                if min_r < bore_radius:
+                    new_at = round(bore_radius + length / 2.0 + 2, 1)
                     lines.append(
-                        f"  - '{ov_id}' (blade pattern): at[0]={at0}mm, chord={chord}mm, "
-                        f"lean_deg={lean}° → min radius ≈ {round(min_r, 1)}mm "
-                        f"(bore radius = {bore_radius}mm)"
+                        f"    FIX: Move feature outward: at[0] ≥ {new_at}mm "
+                        f"(was {at0}) to clear bore"
                     )
-                    # Suggest fix
-                    if lean > 5:
-                        lines.append(
-                            f"    FIX: Reduce lean_deg from {lean}° to ≤5° "
-                            f"(currently causing blade to lean inward into bore at top)"
-                        )
-                    if min_r < bore_radius:
-                        new_at = round(bore_radius + chord / 2.0 + 2, 1)
-                        lines.append(
-                            f"    OR: Move blade outward: at[0] ≥ {new_at}mm "
-                            f"(was {at0}) so min radius {new_at - chord/2}mm > bore {bore_radius}mm"
-                        )
             else:
                 lines.append(f"  - '{ov_id}' ({ov_type})")
         return "\n".join(lines)
@@ -350,6 +287,6 @@ def _translate_disconnected(node: str, design: Design, solid: cq.Solid,
         f"Part consists of {n_solids} disconnected bodies instead of 1. "
         f"Features must physically overlap their parent (not just touch faces). "
         f"For patterned features: ensure each instance intersects the parent "
-        f"body. For blades on a hub: the blade must start inside the hub surface "
-        f"(at[0] - chord/2 < parent_max_radius) so it fuses, then protrude outward."
+        f"body. The feature must start inside the parent surface so it fuses, "
+        f"then protrude outward."
     )

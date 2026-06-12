@@ -1,0 +1,6 @@
+type: cone
+display_name: Cone / Full Cone (r_top=0)
+builder: build_cone
+param_model: ConeParams
+forgecad: cone
+checks: []
