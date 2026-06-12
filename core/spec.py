@@ -75,18 +75,69 @@ def _augment_domain(prompt: str, reqs: list[dict]) -> list[dict]:
                          "expected": True, "param": None, "tolerance": None,
                          "severity": "required",
                          "description": f"{target} must be swept/curved (aerodynamic), not flat"})
+        # PROTRUSION: rotating bladed parts must have features that visibly protrude
+        if not any(r.get("claim") == "protrusion" and r.get("target") == target for r in reqs):
+            reqs.append({"id": f"r{len(reqs)+1}", "claim": "protrusion", "target": target,
+                         "expected": True, "param": None, "tolerance": None,
+                         "severity": "required",
+                         "description": f"{target} must visibly protrude beyond the hub surface"})
+        # CONTACT: features must maintain contact with parent across full height
+        if not any(r.get("claim") == "contact" and r.get("target") == target for r in reqs):
+            reqs.append({"id": f"r{len(reqs)+1}", "claim": "contact", "target": target,
+                         "expected": True, "param": None, "tolerance": None,
+                         "severity": "required",
+                         "description": f"{target} must maintain contact with hub surface across full height"})
     return reqs
 
 
 def _fallback_spec(prompt: str) -> list[dict]:
-    """Offline/덜-LLM spec: counts + a swept rule via regex/keywords."""
-    reqs = []
+    """Offline spec: counts, dimensions, bores, taper, and swept via regex/keywords.
+    Used when the LLM-based extract_spec is unavailable. Covers enough to make the
+    coverage gate meaningful even during a Gemini outage."""
+    reqs: list[dict] = []
+
+    # --- Count patterns: "7 blades", "4 bolt holes", "20 teeth" ---
     for m in re.finditer(r"(\d+)\s+(?:[a-z]+\s+)?([a-z]+?)s?\b", prompt.lower()):
         n, word = int(m.group(1)), m.group(2)
-        if word.rstrip("s") in [w for w in _BLADE_WORDS] + ["hole", "bolt", "tooth", "teeth"]:
+        if word.rstrip("s") in [w for w in _BLADE_WORDS] + list(_CONCRETE_TARGETS):
             reqs.append({"id": f"r{len(reqs)+1}", "claim": "count", "target": word,
-                         "expected": n, "param": None, "tolerance": None,
-                         "severity": "required", "description": f"{n} {word}"})
+                          "expected": n, "param": None, "tolerance": None,
+                          "severity": "required", "description": f"{n} {word}"})
+
+    # --- Dimension patterns: "100mm base diameter", "60mm height", "15mm bore" ---
+    _DIM_PATTERNS = [
+        (r"(\d+)\s*mm\s*(?:base|hub)?\s*diameter", "base_diameter_mm", "hub"),
+        (r"(\d+)\s*mm\s*(?:top)?\s*diameter", "top_diameter_mm", "hub"),
+        (r"(\d+)\s*mm\s*height", "height_mm", "hub"),
+        (r"(\d+)\s*mm\s*thick", "uniform_thickness_mm", "body"),
+    ]
+    for pattern, param, target in _DIM_PATTERNS:
+        for m in re.finditer(pattern, prompt.lower()):
+            reqs.append({"id": f"r{len(reqs)+1}", "claim": "dimension", "target": target,
+                          "expected": float(m.group(1)), "param": param,
+                          "tolerance": 3.0, "severity": "required",
+                          "description": f"{target} {param.replace('_',' ')} {m.group(1)}mm"})
+
+    # --- Bore patterns: "15mm through bore", "bore of 15mm" ---
+    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*mm\s*(?:through)?\s*bore", prompt.lower()):
+        reqs.append({"id": f"r{len(reqs)+1}", "claim": "bore_diameter_mm", "target": "bore",
+                      "expected": float(m.group(1)), "param": None, "tolerance": 1.0,
+                      "severity": "required",
+                      "description": f"bore diameter {m.group(1)}mm"})
+
+    # --- Taper patterns: "tapered", "wider at the base", "outward taper" ---
+    if re.search(r"taper(?:ed|s)?|wider\s+(?:at\s+)?(?:the\s+)?base", prompt.lower()):
+        reqs.append({"id": f"r{len(reqs)+1}", "claim": "taper", "target": "hub",
+                      "expected": "outward_base", "param": None, "tolerance": None,
+                      "severity": "required", "description": "hub tapers outward at base"})
+
+    # --- Swept: keyword presence (also handled by _augment_domain) ---
+    if not any(r.get("claim") == "swept" for r in reqs):
+        if re.search(r"swept|curved|twist(?:ed)?", prompt.lower()):
+            reqs.append({"id": f"r{len(reqs)+1}", "claim": "swept", "target": "blades",
+                          "expected": True, "param": None, "tolerance": None,
+                          "severity": "required", "description": "blades must be swept/curved"})
+
     return _augment_domain(prompt, reqs)
 
 
@@ -190,6 +241,24 @@ def check_coverage(spec: list[dict], l2_checks: list[dict], design) -> dict:
         if claim == "feature_present":
             ok = _match(target, feats) is not None
             why = "" if ok else f"no feature matching role '{target}'"
+        elif claim == "protrusion":
+            f = _match(target, feats)
+            nodes = {target, (f or {}).get("id")}
+            cand = [c for c in l2_checks if c.get("passed")
+                    and c.get("claim") == "feature_contributes"
+                    and c.get("node") in nodes]
+            ok, why = bool(cand), ("" if cand else
+                         f"no passing 'feature_contributes' check on '{target}' — "
+                         f"feature is likely embedded inside its parent")
+        elif claim == "contact":
+            f = _match(target, feats)
+            nodes = {target, (f or {}).get("id")}
+            cand = [c for c in l2_checks if c.get("passed")
+                    and c.get("claim") == "parent_contact"
+                    and c.get("node") in nodes]
+            ok, why = bool(cand), ("" if cand else
+                         f"no passing 'parent_contact' check on '{target}' — "
+                         f"feature may be detached from parent at some heights")
         elif claim == "swept":
             f = _match(target, feats)
             if f and f.get("type") in ("circular_pattern", "linear_pattern"):

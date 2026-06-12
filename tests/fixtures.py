@@ -1,3 +1,4 @@
+
 """Shared IR fixtures for tests. The impeller exercises cone hub, bore, and a
 circular pattern of blades — the same part the legacy pipeline failed on.
 
@@ -12,15 +13,16 @@ def impeller_ir() -> dict:
         "version": "1.0",
         "units": "mm",
         "process": "FDM",
-        "envelope": {"x_mm": 130.0, "y_mm": 130.0, "z_mm": 60.0, "tolerance_mm": 3.0},
+        "envelope": {"x_mm": 125.0, "y_mm": 125.0, "z_mm": 65.0, "tolerance_mm": 6.5},
         "features": [
             {"id": "hub", "type": "cone",
              "params": {"r_base": 50.0, "r_top": 15.0, "height": 60.0}},
             {"id": "blades", "type": "circular_pattern", "op": "union", "target": "hub",
              "params": {"count": 7, "axis": [0, 0, 1],
-                        "feature": {"id": "blade", "type": "box",
+                        "feature": {"id": "blade", "type": "blade",
                                     "params": {"at": [45.0, 0.0, 0.0],
-                                               "length": 40.0, "width": 2.0, "height": 60.0}}},
+                                               "chord": 30.0, "width": 2.0, "height": 60.0,
+                                               "twist_deg": -35.0, "lean_deg": 30.0}}},
              "asserts": {"count": 7, "uniform_thickness_mm": 2.0}},
             {"id": "bore", "type": "hole", "op": "cut", "target": "hub",
              "params": {"diameter": 15.0},

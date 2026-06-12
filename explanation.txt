@@ -1,0 +1,56 @@
+Geometry Agent Harness - Pipeline Flow Explanation
+
+What this is:
+This document explains the actual, implemented Geometry IR Pipeline (orchestrated by `pipeline.py`). It is the core agentic harness that translates a user's natural language design request into verified CAD geometry using a multi-agent, multi-phase compilation and verification loop.
+
+How the Pipeline fits into the whole flow:
+
+1. Initialization & Spec Extraction (Before Planning)
+   - Process Detection: The system detects the intended manufacturing process (e.g., FDM, CNC) and loads profile constraints like `min_wall_mm` using `core.process_detector`.
+   - Independent Intent Extraction: `core.spec.extract_spec` extracts an independent intent contract (a list of requirements) from the core design prompt. The planner cannot weaken this contract.
+   - Decomposition: `core.spec.decompose` decides if the prompt is a monolithic part or an assembly.
+
+2. Planning Phase
+   - Planner Agent (`agents.planner_agent`): Based on the prompt and the extracted spec, the planner generates a structured Geometry IR (or Assembly IR). It does not emit raw CAD code; it builds a feature tree using a controlled vocabulary of primitives (like box, cylinder, hole).
+
+3. The Outer Verification & Redesign Loop (Up to 6 attempts)
+   For each design attempt, the system runs a gauntlet of checks:
+   
+   - L1: Schema Validation (`validate_plan` / `validate_assembly`)
+     Validates the IR structure and references. If it fails, the planner is immediately re-prompted to fix node-keyed errors.
+     
+   - Compilation (`compile_design` / `compile_assembly`)
+     The deterministic compiler translates the IR into a CadQuery solid or compound. It is protected by timeouts. If compilation fails, errors are translated into readable feedback (`core.compile_errors.translate_error`) and the planner tries again. STEP and STL files are exported.
+     
+   - L2: Deterministic Solid Inspection (`inspect_solid` / `inspect_assembly`)
+     Extracts ground-truth geometry metrics and checks them against the requested features. It also runs constraint translation (`verification.constraint_translator`) to map L2 failures into specific parameter fixes for the planner.
+     
+   - L3: Vision Verification (`render_views` + Vision Agent)
+     Headless multi-view rendering generates PNGs of the solid, which are sent to the Vision Agent for an advisory multimodal check.
+     
+   - L4: MeshLib Inspection (optional)
+     Runs only if the design uses custom/mesh-only nodes.
+     
+   - Reviewer Agent (`agents.reviewer_agent`)
+     The Reviewer evaluates the L2 and L3 findings against the design intent, routing the attempt to APPROVED, HALT, or REDESIGN.
+     * Doom-loop detection: If the Reviewer requests a REDESIGN and the same feature constraint fails multiple times in a row, the system escalates the feedback to force a fundamentally different approach.
+
+4. Coverage Gate & Acceptance
+   - If the Reviewer APPROVES the design, the pipeline checks if the valid geometry actually covers the initial immutable user spec (`check_coverage`). 
+   - If coverage is missing, the planner is sent back to redesign. (Repeated coverage failures on the same requirement will downgrade its severity to "preferred").
+   - Once coverage passes, the design is officially APPROVED.
+
+5. Handoff & Registry
+   - ForgeCAD Bundle: The approved IR is packaged into a handoff bundle via `handoff.emit_forgecad_bundle`.
+   - Acceptance: The user can interactively accept or reject the final output via `core.registry.request_acceptance`.
+   - Registry: The final prompt, spec, IR, coverage, and verdict are recorded as a trace using `core.registry.record`.
+   - Report: An HTML report (`reporting.build_report`) is generated summarizing the run.
+
+
+Summary of the Core Components:
+
+- Geometry IR / Planner: The declarative feature language the AI uses.
+- Compiler: The deterministic engine that converts IR to CadQuery solids.
+- Spec & Coverage: The immutable contract extracted at the start and checked at the end.
+- L1-L4 Verification: The multi-layered safety net ensuring manufacturability and intent.
+- Doom-Loop Detection & Constraint Translation: Mechanisms to prevent the planner from getting stuck and provide it with precise parameter-level fixes.

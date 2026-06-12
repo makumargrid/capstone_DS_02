@@ -1,0 +1,100 @@
+Geometry Agent Harness - In-Depth Pipeline Flow (`explanation_02.txt`)
+
+This document provides a deep, granular look into the implemented CAD pipeline, detailing exactly *who* is validating, *what* is getting validated, and the precise mechanisms used at each step of the flow orchestrated by `pipeline.py`.
+
+---
+
+### 1. Initialization & Spec Extraction (Before Planning)
+
+Who: `core.process_detector` and `core.spec`
+What is happening:
+- **Process Detection**: The prompt is scanned by `core.process_detector.detect_process` to identify the manufacturing process (e.g., FDM, CNC). This loads a manufacturing profile containing constraints like `min_wall_mm`.
+- **Independent Intent Extraction**: Before the planner can generate any geometry, `core.spec.extract_spec` extracts an independent contract of requirements. 
+  - *Mechanism*: An LLM translates the prompt into a rigid JSON list of requirements. Each requirement has a `claim` (from a strict vocabulary: `feature_present`, `count`, `swept`, `taper`, `bore_diameter_mm`, `uniform_thickness_mm`, `dimension`) and a concrete `target` (e.g., "hub", "blades"). 
+  - *Determinism*: The system applies hardcoded rules via `_augment_domain` (e.g., if the prompt involves a rotating machine like an "impeller", it deterministically injects a `swept` requirement so the planner cannot cheat by outputting flat plates).
+  - *Fallback*: If the LLM fails, `_fallback_spec` uses regex to extract dimensions, counts, and bores directly from the text.
+- **Decomposition**: `core.spec.decompose` uses an LLM to decide whether the prompt implies a single monolithic "part" or an "assembly" of distinct, separate bodies.
+
+---
+
+### 2. Planning Phase
+
+Who: Planner Agent (`agents.planner_agent.py`)
+What is happening:
+- The Planner Agent receives the raw prompt, the detected manufacturing process, and the rigid spec contract. 
+- It generates a structured JSON Geometry IR (Intermediate Representation) or Assembly IR. 
+- *What is generated*: It does not write Python or CadQuery code. Instead, it emits a sequence of nodes (a feature tree). Each node has a `type` (a known primitive like `box`, `cylinder`, `cone`, `blade`, `circular_pattern`), unique `id`, `params`, boolean operations (`union`, `cut`), and `asserts` (self-declared checks).
+
+---
+
+### 3. The Outer Verification & Redesign Loop
+
+This loop runs up to 6 times. For each IR emitted by the planner, it must pass the following gauntlet:
+
+#### L1: Schema Validation
+Who: `geometry_ir.validate.validate_plan`
+What is validated:
+- *Structural Integrity*: Checks that the IR contains valid JSON, units, and at least one feature.
+- *Parameter Validation*: Uses Pydantic (`primitives.PARAM_MODELS`) to validate the parameters for every specific primitive type (e.g., ensuring a `cylinder` has `radius` and `height` > 0).
+- *Reference Integrity*: Ensures all feature IDs are unique and that any `target` (the parent feature a boolean operation applies to) actually points to a previously defined feature ID.
+- *Feedback Loop*: If validation fails, errors are mapped to specific nodes (e.g., `feature.height: must be an integer`) and fed immediately back to the planner to fix.
+
+#### Compilation
+Who: `primitives.compiler.compile_design`
+What is happening:
+- The deterministic compiler translates the Geometry IR into a CadQuery solid. 
+- *Tracking*: As it compiles, it generates `FeatureProvenance`, tracking exactly how much volume each feature contributes to the final solid.
+- *Failure Handling*: Protected by a timeout. If a CadQuery operation fails (e.g., topological error), `core.compile_errors.translate_error` converts the kernel exception into readable advice for the planner.
+
+#### L2: Deterministic Solid Inspection
+Who: `verification.solid_inspector.inspect_solid`
+What is validated:
+This is the deterministic ground-truth verification of the CadQuery solid. It returns node-keyed pass/fail results.
+- *Manifold Check*: Ensures the output is a single connected solid (`single_solid`).
+- *Envelope Check*: Checks the bounding box/circumscribed diameter of the final solid against the declared envelope dimensions, using a generous 7% relative tolerance (to catch collapsed or grossly oversized parts).
+- *Universal Feature Contribution Check*: Uses compiler provenance to ensure every `union` feature contributes >20% of its volume as new material. This detects and fails "embedded features" (e.g., a blade completely buried inside a hub).
+- *Universal Parent Contact Check*: For union features attached to conical/cylindrical parents, it checks the feature's minimum radial extent at its top and bottom against the parent's radius. This catches floating features disconnected from the parent.
+- *Feature-Specific Asserts*: Verifies the planner's declared assertions:
+  - `uniform_thickness_mm`: Checks the primitive's thickness parameter or the min-axis of its bounding box.
+  - `taper`: Measures the radial extent of vertices at the base vs. top of the part to ensure the correct taper direction (`outward_base` or `outward_top`).
+  - `bore_diameter_mm`: Probes a cylindrical void down the axis of the final bounding box to verify a through-hole actually exists.
+- *Constraint Translation*: If a check fails, `verification.constraint_translator.translate_failure` tries to calculate the exact numerical fix (e.g., "Change r_base from 10 to 15") and injects this into the planner feedback.
+
+#### L3: Vision Verification
+Who: `verification.render_views` + Vision Agent (`agents.vision_agent.py`)
+What is happening:
+- The system renders headless multi-view PNGs of the compiled CadQuery solid.
+- These images are passed to a Vision Agent (a multimodal LLM) to perform an advisory visual check, evaluating if the generated shape resembles the user's prompt visually.
+
+#### L4: MeshLib Inspection
+Who: `agents.meshlib_agent.run_inspection`
+What is happening:
+- An optional layer that runs only if the planner utilized `custom` or mesh-only nodes that cannot be evaluated purely by CadQuery.
+
+#### Reviewer Agent & Doom-Loop Detection
+Who: Reviewer Agent (`agents.reviewer_agent.py`) and `pipeline.py`
+What is happening:
+- The Reviewer Agent receives the L2 metrics and L3 visual findings. It decides whether the design should be `APPROVED`, `HALT` (needs human intervention), or `REDESIGN`.
+- *Doom-Loop Detection*: Inside `pipeline.py`, the system tracks "streaks". If the exact same L2 constraint failure (e.g., `bore.bore_present`) happens 2+ times in a row across iterations, the system injects an escalated "DOOM-LOOP WARNING". This forces the planner to try a fundamentally different geometric approach (like repositioning a feature entirely) rather than just tweaking the same broken parameter.
+
+---
+
+### 4. Coverage Gate & Acceptance
+
+Who: `core.spec.check_coverage`
+What is validated:
+- Even if the Reviewer `APPROVED` the valid geometry, the system performs a final gate: *Does the valid geometry actually fulfill the user's initial, immutable intent contract?*
+- *Mechanism*: `check_coverage` maps the `required` requirements from Phase 1 against the passed L2 checks and IR structure. For example, if the spec demanded `claim: count, target: blades, expected: 7`, it verifies that a passing L2 `count` check for the node `blades` returned exactly 7.
+- *Feedback Loop*: If intent is missing, the pipeline constructs targeted guidance via `coverage_feedback` (e.g., detecting if the planner swapped top and base radii) and sends it back to the planner for redesign.
+- *Safety Valve*: If a specific spec requirement fails the coverage gate 2 times in a row, the doom-loop detector downgrades that requirement from "required" to "preferred" so the pipeline can eventually converge instead of looping infinitely on an impossible requirement.
+
+---
+
+### 5. Handoff & Registry
+
+Who: `handoff.emit_forgecad_bundle`, `core.registry`, and `reporting.build_report`
+What is happening:
+- *Bundle Emission*: Once coverage passes, the design is officially approved. The geometry IR is packaged into a ForgeCAD integration bundle.
+- *Acceptance*: The pipeline prompts the human user (in interactive mode) to formally accept or reject the final geometry based on the generated PNG views.
+- *Registry*: `core.registry.record` saves the prompt, spec, final IR, coverage report, and human verdict into a historical trace database.
+- *Reporting*: An HTML visual report is generated summarizing the metrics, failures, and final output of the run.

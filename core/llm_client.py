@@ -48,11 +48,14 @@ def call_llm(model_name: str, contents: str, system_prompt: str | None = None) -
                     return client.messages.create(**kwargs).content[0].text
                 client = genai.Client(vertexai=False, api_key=os.environ.get("GEMINI_API_KEY"))
                 full = f"{system_prompt}\n\n{contents}" if system_prompt else contents
-                return client.models.generate_content(model=model, contents=full).text
+                return client.models.generate_content(model=model, contents=full).text or ""
             except Exception as e:
                 last_error = e
                 logger.warning(f"call_llm error on {model} attempt {attempt + 1}: {e}")
                 if attempt < 2:
                     time.sleep(2 ** attempt)
         logger.error(f"All attempts failed for {model}; trying next model.")
+    if last_error is None:
+        raise RuntimeError("All LLM attempts failed but no exception was recorded")
     raise last_error
+

@@ -20,10 +20,15 @@ def _repo_root() -> Path:
 def bootstrap_env(load_dotenv_file: bool = True) -> None:
     """Load .env and normalize provider env names without exposing secrets."""
     global _BOOTSTRAPPED
+    if _BOOTSTRAPPED:
+        return 
     if load_dotenv_file:
         try:
             from dotenv import load_dotenv
-            load_dotenv(_repo_root() / ".env", override=False)
+            # override=True: .env file ALWAYS takes priority over shell env vars.
+            # This ensures the project .env is the single source of truth, preventing
+            # stale terminal `export` values from blocking fresh .env keys.
+            load_dotenv(_repo_root() / ".env", override=True)
         except Exception:
             pass
 
@@ -47,4 +52,15 @@ def provider_presence() -> dict[str, bool]:
         "google": bool(os.environ.get("GOOGLE_API_KEY", "").strip()
                        or os.environ.get("GEMINI_API_KEY", "").strip()),
     }
+
+
+def diagnostic_summary() -> str:
+    """Return a one-line diagnostic of which providers are available.
+    Safe to log — shows presence only, never key values."""
+    bootstrap_env()
+    present = provider_presence()
+    parts = []
+    parts.append(f"anthropic={'✓' if present['anthropic'] else '✗'}")
+    parts.append(f"google={'✓' if present['google'] else '✗'}")
+    return "[ENV] providers: " + " | ".join(parts)
 

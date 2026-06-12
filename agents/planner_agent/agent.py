@@ -29,99 +29,80 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from core.model_config import get_model_name, get_fallback_model_name, safe_parse_json
-from tools.planner_tools import list_primitives, get_primitive_schema, validate_plan, ask_user as _terminal_ask_user, get_last_valid_ir
+from tools.planner_tools import list_primitives, get_primitive_schema, validate_plan, verify_spatial_placement, ask_user as _terminal_ask_user, get_last_valid_ir
 
 logger = logging.getLogger("planner_agent")
 
-PLANNER_INSTRUCTION = """You are a senior CAD engineer. You design parts as a
+# ═══════════════════════════════════════════════════════════════════════════
+# BASE INSTRUCTION — universal for ALL part types (no domain-specific guidance)
+# ═══════════════════════════════════════════════════════════════════════════
+BASE_PLANNER_INSTRUCTION = """You are a senior CAD engineer. You design parts as a
 **Geometry IR** — a typed parametric feature tree in JSON — NOT as free-form code.
 
 ## Workflow (follow in order)
-1. CLARIFY (ask ALL unknown questions BEFORE starting the design):
-   Identify every dimension, shape choice, or functional requirement the user has
-   NOT stated. Batch ALL of them into a SINGLE structured question using `ask_user`
-   — ask them sequentially in one call. Never stop mid-design to ask.
 
-   QUESTION STYLE — follow exactly:
-   - Lead with the USE CASE, not the technical parameter.
-     "What will this fan be used for?" not "Specify the application domain."
-   - Give 2–4 named options with real-world analogies:
-       a) Like a desk fan — moves lots of air gently (low pressure, high flow)
-       b) Like a turbocharger — forces air under high pressure (high pressure, lower flow)
-       c) Like a building HVAC fan — balanced flow and pressure
-   - Include an ASCII diagram when spatial shape matters:
-       SIDE VIEW — which blade profile fits your goal?
-         a) Curved backward (most efficient, industry standard):   / / /
-         b) Straight radial (simpler, more robust):                | | |
-         c) Curved forward (higher pressure, less stable):         \ \ \
-   - Always state the INDUSTRY STANDARD recommendation explicitly before listing
-     options: "For centrifugal compressors, option (a) is the standard — used in
-     jet engines, turbochargers, and industrial blowers."
-   - Never recommend the easiest-to-build option over the correct one.
-   - If the user already provided sufficient detail, skip ask_user and proceed.
+### 1. CLARIFY — understand what the user truly needs (before designing)
+Your goal is to help ANY user — from engineers to hobbyists — describe what they
+want to build. Use `ask_user` for genuinely missing information. Batch ALL questions
+into ONE call. Skip this step if the prompt already has enough detail.
 
-   Default questions to ask when designing rotating bladed parts (if not stated):
-   - Intended application / working fluid (air, water, fuel — determines blade shape)
-   - Performance priority: efficiency, pressure rise, or flow rate
-   - Any unspecified key dimensions (tip radius, bore, blade count if not in prompt)
-   - Aesthetics importance (functional rough part vs. precision visible surface)
+QUESTION STYLE — make every user feel understood:
+- EXPLAIN WHY you are asking: "I'm asking because this affects how strong the walls
+  need to be and what shape will work best for your purpose."
+- Use EVERYDAY ANALOGIES, never raw technical parameters:
+  "Should this part be lightweight like a plastic phone case, or strong like
+   a metal wrench?" — NOT "Specify min_wall_mm and material grade."
+- Give 2–3 plain-language options with what each means in practice:
+    a) "Basic function — just need the shape to work" (simpler, faster to make)
+    b) "Balanced — good strength and finish" (the standard choice for most things)
+    c) "Maximum durability — needs to handle stress/heat/wear" (stronger, may cost more)
+- ALWAYS end with: "If you're not sure, I'll use the industry standard approach —
+  just say 'standard' and I'll handle the details."
+- When spatial shape matters, describe it in words first, then offer an ASCII sketch:
+    "The blades can curve in different ways. Imagine holding the part:
+      a) They sweep backward like a jet engine fan — smooth and efficient
+      b) They go straight out like a desk fan — simple and sturdy
+      c) They lean forward like a vacuum impeller — more pressure, less stable
+    For most rotating parts, option (a) is the standard."
+- NEVER use words like 'radial', 'axial', 'frustum', 'parameter', 'tolerance',
+  or 'specification' in your question. Talk about what the part DOES, not its math.
+- If the user already described their need clearly, proceed to DISCOVER.
 
-2. DISCOVER: call `list_primitives`, then `get_primitive_schema` for each
-   primitive you intend to use, so every param name/type is correct.
-3. PLAN: briefly decompose the part into features (base solid, then unions/cuts).
-4. EMIT IR: produce ONE JSON object (the Design).
-5. SELF-CORRECT: call `validate_plan` on your IR. If it returns errors, fix the
-   exact node it names and re-validate until valid=true.
+### 2. DISCOVER the available building blocks
+Call `list_primitives` to see what shapes are available. For each shape you plan
+to use, call `get_primitive_schema` so you know the exact names of every dimension.
 
-## Rules that make designs verifiable (important)
+### 3. PLAN the feature tree
+Briefly think through: what's the main body? What gets added to it (unions)?
+What gets cut away (holes, pockets)? What repeats in a pattern?
+
+### 4. EMIT the IR as JSON
+Build the complete Design and output it as ONE ```json fenced block.
+
+### 5. SELF-CORRECT
+Call `validate_plan` on your IR. If it returns errors, fix the exact node it
+names and re-validate. Keep fixing until valid=true.
+
+## Universal Rules (apply to EVERY design)
 - PREFER LIBRARY PRIMITIVES. Use `custom` ONLY when no primitive can express the
-  shape — it is quarantined (not natively editable, fewer checks).
+  shape — `custom` blocks are quarantined (not natively editable, fewer checks).
 - For N identical features (blades, bolt holes, fins, teeth) use a
-  `circular_pattern` or `linear_pattern` — NEVER hand-place N copies.
+  `circular_pattern` or `linear_pattern` — NEVER hand-place N separate copies.
 - Declare intent in `asserts` so the deterministic inspector can verify it:
-  e.g. a pattern's `count`, a feature's `uniform_thickness_mm`, a hub's `taper`
-  ('outward_base'/'outward_top'), a bore's `bore_diameter_mm`.
-- Set `envelope` to the overall bounding box of the FINISHED ASSEMBLY,
-  INCLUDING every feature that protrudes beyond the main body (curved/twisted
-  blades, bosses, fins often extend above/around the hub). The envelope is a
-  COARSE bound: use `tolerance_mm` of at least 5% of the largest dimension (more
-  for swept/curved/twisted parts). Precise dimensions live in `asserts`.
+  Pattern's `count`, a feature's `uniform_thickness_mm`, a hub's `taper`
+  (string: `"outward_base"` or `"outward_top"`, never boolean `true`),
+  a bore's `bore_diameter_mm`.
+- Set `envelope` to the overall bounding box of the FINISHED part, INCLUDING
+  every feature that sticks out (blades, bosses, fins often extend above/beyond
+  the main body). Use `tolerance_mm` of at least 5% of the largest dimension.
+  Precise dimensions live in per-feature `asserts`, not in the envelope.
 
-## FRUSTUM / CONE ORIENTATION (critical — do not invert)
-`r_base` = radius at z=0 (the PHYSICAL BOTTOM of the part, i.e. the `at` position).
-`r_top`  = radius at z=height (the PHYSICAL TOP).
-ALWAYS r_base > r_top for parts that are wider at the bottom (standard impellers, hubs).
-"base diameter 100mm, top diameter 30mm" → r_base=50, r_top=15. NEVER invert these.
-`taper` assert: ALWAYS use the STRING `"outward_base"` (wider at bottom) or
-`"outward_top"` (wider at top). Do NOT use `true` — the inspector needs the direction.
-Example correct assert: `"asserts": {"taper": "outward_base", "base_diameter_mm": 100, ...}`
-
-## IMPELLER / TURBINE / FAN BLADE GEOMETRY (critical — read carefully)
-When designing circular_pattern blades on a tapered hub (frustum/cone), the blade
-must be positioned to EXTEND OUTWARD FROM the hub surface, not float inside it.
-
-Correct blade positioning formula:
-  r_hub_avg  = (hub.r_base + hub.r_top) / 2        ← average hub radius
-  r_tip      = desired tip radius (usually ≥ hub.r_base for centrifugal)
-  blade.at[0] = (r_hub_avg + r_tip) / 2             ← blade center = midpoint of span
-  blade.chord = r_tip - r_hub_avg                    ← radial span of the blade
-
-Example for hub r_base=50, r_top=15, tip radius=50:
-  r_hub_avg = (50+15)/2 = 32.5
-  blade.at[0] = (32.5 + 50) / 2 = 41.25  ← NOT 35 or 40
-  blade.chord = 50 - 32.5 = 17.5          ← NOT 25
-
-Blade height: set to the HUB height (or slightly less). blade.at[2] = 0.
-
-For centrifugal impellers (backward-curved, industry standard):
-  twist_deg = -35 to -45  (negative = backward-curved = more efficient)
-  lean_deg  = arctan((hub.r_base - hub.r_top) / hub.height) in degrees
-              This angles the blade to track the hub taper, reducing geometric artifacts.
-  Example for r_base=50, r_top=15, height=60:
-              lean_deg = arctan(35/60) ≈ 30.3°
-
-For axial fans (blades parallel to axis): lean_deg = 0, twist_deg = 15–25.
-For radial blades (simple, less efficient): twist_deg = 0, lean_deg = 0.
+## Frustum / Cone Orientation (when using `cone` / `frustum` primitive)
+- `r_base` = radius at z=0 (the PHYSICAL BOTTOM of the part).
+- `r_top`  = radius at z=height (the PHYSICAL TOP).
+- "base diameter 100mm, top diameter 30mm" → r_base=50, r_top=15. NEVER invert.
+- The `taper` assert key must be a STRING: `"outward_base"` (wider at bottom)
+  or `"outward_top"` (wider at top). Do NOT use boolean `true`.
 
 ## IR shape
 {
@@ -136,14 +117,129 @@ Pattern feature shape:
   {"id","type":"circular_pattern","op":"union","target":<base id>,
    "params":{"count":N,"axis":[0,0,1],"feature":{"id","type","params":{...}}},
    "asserts":{"count":N, ...}}
-Custom escape hatch:
+Custom escape hatch (last resort):
   {"id","type":"custom","params":{"code":"<cadquery; assign result_solid>"}}
 
 ## Final output
 After validation passes, output the final IR as ONE ```json fenced block.
 """
 
-PLANNER_TOOLS = [list_primitives, get_primitive_schema, validate_plan, _terminal_ask_user]
+# ═══════════════════════════════════════════════════════════════════════════
+# DOMAIN INSTRUCTIONS — injected only when the part type is detected
+# ═══════════════════════════════════════════════════════════════════════════
+
+DOMAIN_ROTATING_BLADED = """
+## ROTATING BLADED PART GUIDANCE (impeller / turbine / fan / compressor / propeller)
+
+PRINCIPLE: Every union feature must protrude beyond its parent surface AND maintain
+contact with the parent across its full height. The compiler will automatically verify
+both `feature_contributes` (is it protruding?) and `parent_contact` (is it attached?).
+
+### CRITICAL: Parent Contact on Tapered Hubs
+
+The hub surface radius CHANGES with height. A vertical blade (lean_deg=0) on a
+tapered frustum will DETACH at the top — at z=60mm the hub is only r=15mm wide but
+the blade is still at its base position r=40mm. This produces corrupted geometry.
+
+TO FIX: Set lean_deg to track the hub taper so the blade stays in contact:
+  lean_deg ≈ arctan((r_base - r_top) / height)
+  Example: r_base=50, r_top=15, height=60 → lean_deg ≈ 30°
+
+VERIFY with verify_spatial_placement after setting lean_deg:
+- If blade min radius at top falls below bore radius, reduce lean_deg
+- For backward-curved (industry standard): twist_deg = -35 to -45
+- For straight radial (simple): twist_deg = 0
+
+### Blade Positioning
+
+Before emitting IR, use verify_spatial_placement to check:
+- blade must protrude beyond hub at all z-levels
+- blade must NOT cross into the bore
+- USE ask_user when blade tip radius / outer diameter is not specified
+"""
+
+DOMAIN_GEAR = """
+## GEAR / SPROCKET GUIDANCE
+
+For gears: use a `circular_pattern` of `box` or `blade` features around a central
+`cylinder` hub. Declare tooth count in the pattern's `asserts.count`. The tooth
+profile should protrude radially from the hub surface.
+"""
+
+DOMAIN_ENCLOSURE = """
+## ENCLOSURE / HOUSING / BOX GUIDANCE
+
+For enclosures: use a `box` or `cylinder` as the outer shell. Cut the interior
+with a slightly smaller box/cylinder (`op: cut`) to create the hollow cavity.
+Wall thickness = (outer_dim - inner_dim) / 2. Add mounting holes, bosses, or
+ribs as separate features on the appropriate face.
+"""
+
+DOMAIN_BRACKET = """
+## BRACKET / MOUNTING PLATE GUIDANCE
+
+For brackets: use a `box` as the base plate. Add `hole` features for mounting
+points (often a `linear_pattern` or two holes at known positions). Add ribs
+(`box` with small width) for reinforcement where the load is highest.
+"""
+
+# Map of prompt keywords → domain instruction to inject
+DOMAIN_KEYWORD_MAP: dict[str, str] = {
+    "impeller": DOMAIN_ROTATING_BLADED,
+    "turbine": DOMAIN_ROTATING_BLADED,
+    "compressor": DOMAIN_ROTATING_BLADED,
+    "propeller": DOMAIN_ROTATING_BLADED,
+    "fan": DOMAIN_ROTATING_BLADED,
+    "rotor": DOMAIN_ROTATING_BLADED,
+    "pump": DOMAIN_ROTATING_BLADED,
+    "screw": DOMAIN_ROTATING_BLADED,
+    "auger": DOMAIN_ROTATING_BLADED,
+    "turbofan": DOMAIN_ROTATING_BLADED,
+    "blade": DOMAIN_ROTATING_BLADED,
+    "gear": DOMAIN_GEAR,
+    "sprocket": DOMAIN_GEAR,
+    "enclosure": DOMAIN_ENCLOSURE,
+    "housing": DOMAIN_ENCLOSURE,
+    "case": DOMAIN_ENCLOSURE,
+    "box": DOMAIN_ENCLOSURE,
+    "shell": DOMAIN_ENCLOSURE,
+    "container": DOMAIN_ENCLOSURE,
+    "bracket": DOMAIN_BRACKET,
+    "mount": DOMAIN_BRACKET,
+    "plate": DOMAIN_BRACKET,
+    "flange": DOMAIN_BRACKET,
+}
+
+
+def _detect_domains(prompt: str) -> str:
+    """Scan the prompt for domain keywords; return concatenated domain instructions."""
+    pl = prompt.lower()
+    injected = set()
+    instructions = []
+    for keyword, block in DOMAIN_KEYWORD_MAP.items():
+        if keyword in pl and block not in injected:
+            instructions.append(block)
+            injected.add(block)
+    return "\n".join(instructions)
+
+
+def _build_instruction(prompt: str) -> str:
+    """Build the full planner instruction: base + domain-specific blocks + relevant CadQuery examples."""
+    instruction = BASE_PLANNER_INSTRUCTION
+    domain = _detect_domains(prompt)
+    if domain:
+        instruction += "\n" + domain
+    # Append relevant CadQuery API examples from rag_kb1 for the detected domain
+    try:
+        from rag_kb1 import get_api_context
+        kb1 = get_api_context(None, prompt)
+        if kb1:
+            instruction += "\n\n## Relevant CadQuery API Reference\n" + kb1
+    except Exception:
+        pass
+    return instruction
+
+PLANNER_TOOLS = [list_primitives, get_primitive_schema, validate_plan, verify_spatial_placement, _terminal_ask_user]
 
 
 def _make_ask_user_tool(question_handler):
@@ -190,7 +286,7 @@ root_agent = Agent(
     model=get_model_name("planner"),
     name="planner_agent",
     description="Senior CAD engineer that emits a validated Geometry IR feature tree.",
-    instruction=PLANNER_INSTRUCTION,
+    instruction=BASE_PLANNER_INSTRUCTION,
     tools=PLANNER_TOOLS,
 )
 
@@ -224,17 +320,19 @@ class IRPlanner:
 
     def __init__(self, interactive: bool = False, process: str = "FDM",
                  question_handler=None, session_db_uri: str | None = None,
-                 reuse_session_id: str | None = None):
+                 reuse_session_id: str | None = None, prompt: str = ""):
         self.interactive = interactive
         self.process = process
         self.model_name = get_model_name("planner")
         self.fallback_model = get_fallback_model_name("planner")
         ask_tool = _make_ask_user_tool(question_handler)
-        self._tools = [list_primitives, get_primitive_schema, validate_plan, ask_tool] if interactive else PLANNER_TOOLS[:-1]
+        self._tools = [list_primitives, get_primitive_schema, validate_plan, verify_spatial_placement, ask_tool] if interactive else [t for t in PLANNER_TOOLS if t is not _terminal_ask_user]
         # _log defaults to the module logger; pipeline.py replaces it with the
         # run-specific file logger (planner._log = log) so all planner activity
         # appears in 00_pipeline_execution.log alongside the pipeline's own logs.
         self._log = logger
+        # Build the instruction with domain-specific blocks detected from the prompt
+        self._instruction = _build_instruction(prompt)
 
         if session_db_uri:
             from google.adk.sessions import DatabaseSessionService
@@ -255,12 +353,14 @@ class IRPlanner:
 
         self._build(self.model_name)
 
-    def _build(self, model: str):
+    def _build(self, model: str, instruction: str | None = None):
         """(Re)build agent + runner for `model`. ADK resolves the provider at
-        build time, so switching providers requires rebuilding, not mutating."""
+        build time, so switching providers requires rebuilding, not mutating.
+        `instruction` overrides the base instruction (used for domain injection)."""
+        instr = instruction or self._instruction
         self.agent = Agent(model=model, name="planner_agent",
                            description=root_agent.description,
-                           instruction=PLANNER_INSTRUCTION, tools=self._tools)
+                           instruction=instr, tools=self._tools)
         self.runner = Runner(agent=self.agent, app_name="planner_agent",
                              session_service=self.session_service)
 

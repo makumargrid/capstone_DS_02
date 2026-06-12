@@ -37,15 +37,40 @@ from core.model_config import get_model_name, safe_parse_json
 # Severity order: pick the most fundamental failing claim first so repairs
 # converge one node at a time.
 _PRIORITY = ["no_interference", "single_solid", "contact", "concentric_alignment",
-             "fit", "count", "bore_present", "bore_diameter_mm",
-             "uniform_thickness_mm", "taper", "envelope_diameter_mm",
+             "fit", "feature_contributes", "parent_contact", "count",
+             "bore_present", "bore_diameter_mm", "uniform_thickness_mm", "taper",
+             "envelope_diameter_mm",
              "envelope_x_mm", "envelope_y_mm", "envelope_z_mm"]
 
 
 def _repair_instruction(c: dict) -> str:
-    """Map a failed L2 check to a surgical IR node+param edit."""
+    """Map a failed L2 check to a surgical IR node+param edit.
+
+    Root-cause diagnosis: each instruction explains WHAT went wrong and HOW
+    the planner should fix it, derived from geometry measurements — not
+    generic templates."""
     node, claim = c["node"], c["claim"]
+    detail = c.get("detail", "")
     exp, meas = c.get("expected"), c.get("measured")
+    if claim == "feature_contributes":
+        return (f"Feature `{node}` is almost entirely embedded inside the target "
+                f"body — {detail}. This means `{node}` does NOT visibly change "
+                f"the part. Reposition `{node}` so it extends OUTWARD from the "
+                f"target surface. For features on tapered bodies (cone/frustum), "
+                f"the surface radius shrinks with height — ensure the feature "
+                f"extends beyond the surface at EVERY height. If this is a "
+                f"patterned feature, increase the radial reach (move at[0] outward "
+                f"or increase chord) or set lean_deg to 0 so the feature stays "
+                f"upright instead of leaning inward.")
+    if claim == "parent_contact":
+        return (f"Feature `{node}` has lost contact with its parent — "
+                f"{detail}. The feature is floating in empty space at some "
+                f"z-levels, which produces corrupted geometry from the boolean "
+                f"union. For blades on tapered hubs: set lean_deg to track the "
+                f"hub taper. lean_deg ≈ arctan((parent.r_base - parent.r_top) / "
+                f"parent.height). For example, r_base=50, r_top=15, height=60 "
+                f"→ lean_deg ≈ 30°. If lean_deg causes bore collision, reduce it "
+                f"by 5-10°.")
     if claim == "single_solid":
         return ("Geometry is not one connected solid. Make sub-features OVERLAP "
                 "their parent (embed 1–2mm, not just touch) so the boolean fuses "
@@ -54,9 +79,13 @@ def _repair_instruction(c: dict) -> str:
         return (f"Set `{node}.params.count = {exp}` (measured {meas}). "
                 f"Do not change the per-instance feature geometry.")
     if claim in ("bore_present", "bore_diameter_mm"):
-        return (f"`{node}` bore is wrong (measured {meas}). Ensure a `hole` feature "
-                f"with op='cut' passes fully through the parent along its axis with "
-                f"the declared diameter. Do not change other features.")
+        return (f"`{node}` bore is obstructed — residual material of {meas}mm³ "
+                f"remains inside the bore zone. This usually means another union "
+                f"feature overlaps the bore area. Check that no feature's geometry "
+                f"crosses through the bore axis (diameter {exp if claim == 'bore_diameter_mm' else 'declared'}mm). "
+                f"The bore itself (hole with op='cut') must pass fully through "
+                f"the parent along its axis. Do not change the bore — fix the "
+                f"overlapping feature instead.")
     if claim == "uniform_thickness_mm":
         return (f"`{node}` thickness is {meas} but must be {exp}. Set the pattern's "
                 f"per-instance thickness param (the smallest dimension of "

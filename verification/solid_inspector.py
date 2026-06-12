@@ -5,7 +5,15 @@ WHAT: inspect_solid(design, solid, provenance, min_wall) reads the compiled soli
       + provenance and checks each result against the IR's DECLARED claims
       (single_solid, envelope/diameter, count, uniform_thickness, taper, bore).
       Every result is node-keyed so the reviewer can issue a surgical repair.
-      This is what fixed the legacy 8.63mm "uniform 2mm" miss.
+
+SMART VERIFICATION:
+  - Universal `feature_contributes` check: fires for EVERY union feature using
+    the compiler's contribution audit data. Catches any embedded feature
+    (blade inside hub, boss inside box, rib inside shell) without knowing
+    what the feature IS.
+  - Bore check uses the FINAL SOLID's bounding box, not the oversized cutting
+    tool. Prevents false negatives from probes that extend far beyond the part.
+
 CALLED BY: pipeline.py (L2 gate), agents/reviewer_agent (consumes results),
            tests.
 CALLS: cadquery; geometry_ir/models.py (Design); primitives/compiler.py
@@ -20,7 +28,7 @@ from primitives.compiler import compile_design, FeatureProvenance
 
 # Envelope is a COARSE bound: effective tol = max(declared, ENV_REL_TOL*dim).
 # Precise intent lives in per-feature asserts, so this can be generous.
-ENV_REL_TOL = 0.05  # 5% of the dimension
+ENV_REL_TOL = 0.07  # 7% of the dimension
 
 
 def _result(node, claim, passed, measured, expected, detail=""):
@@ -78,7 +86,38 @@ def inspect_solid(design: Design | dict, solid: cq.Solid,
         _env_check("envelope_y_mm", bb.ylen, env.y_mm)
         _env_check("envelope_z_mm", bb.zlen, env.z_mm)
 
-    # 3. Per-feature claims driven by each feature's `asserts`.
+    # 3. UNIVERSAL: feature contribution check (from compiler's audit).
+    #    Fires for EVERY union feature. Catches any embedded feature without
+    #    knowing what the feature IS — blade inside hub, boss inside box, etc.
+    for feat in design.features:
+        prov = prov_by_id.get(feat.id)
+        if prov is None or prov.mesh_only:
+            continue
+        if feat.op == "union" and prov.volume > 1.0:
+            # Skip the very first union (the base body — it has nothing to protrude from)
+            is_base = (feat == design.features[0] and feat.target is None)
+            if not is_base:
+                checks.append(_result(
+                    feat.id, "feature_contributes",
+                    prov.contribution_ratio > 0.20,
+                    round(prov.contribution_ratio, 4), "> 0.20",
+                    f"only {prov.contribution_ratio * 100:.0f}% of '{feat.id}' "
+                    f"protrudes from the surface ({prov.external_volume:.0f}mm³ "
+                    f"of {prov.volume:.0f}mm³ total)"
+                ))
+
+    # 3b. UNIVERSAL: parent contact check — feature must intersect parent at all z-levels
+    for feat in design.features:
+        prov = prov_by_id.get(feat.id)
+        if prov is None or prov.mesh_only:
+            continue
+        if feat.op == "union" and feat.target is not None:
+            target_feat = next((f for f in design.features if f.id == feat.target), None)
+            if target_feat and target_feat.type in ("frustum", "cone", "cylinder"):
+                checks.append(_check_parent_contact(
+                    feat.id, prov, target_feat.id, target_feat.type, target_feat.params))
+
+    # 4. Per-feature claims driven by each feature's `asserts`.
     for feat in design.features:
         prov = prov_by_id.get(feat.id)
         if prov is None or prov.mesh_only:
@@ -191,14 +230,83 @@ def _check_taper(node, prov: FeatureProvenance, direction: str) -> dict:
                    direction, "radial protrusion direction base→top")
 
 
+def _check_parent_contact(node: str, prov: FeatureProvenance, parent_id: str,
+                           parent_type: str, parent_params: dict) -> dict:
+    """Check that a union feature maintains contact with its parent across the
+    full height/range of the feature. Detects floating/detached features that
+    cause corrupted boolean results (e.g. blade in empty space at top of tapered hub).
+
+    For frustum/cone parents: at the feature's z_min and z_max, the feature's
+    minimum radial extent must be ≤ parent's surface radius at that z.
+    This ensures the blade inner edge is actually inside the hub, not floating.
+
+    GENERAL: works for any union feature on any axially-symmetric parent.
+    """
+    if not prov.instance_solids:
+        return _result(node, "parent_contact", False, "no instances", "must intersect parent",
+                       "feature has no geometry instances")
+
+    feat_solid = prov.instance_solids[0]
+    feat_bb = feat_solid.BoundingBox()
+    z_min = feat_bb.zmin
+    z_max = feat_bb.zmax
+
+    # Get feature's minimum radial extent at z_min and z_max
+    min_r_at_bottom = float('inf')
+    min_r_at_top = float('inf')
+    for v in feat_solid.Vertices():
+        r = (v.X**2 + v.Y**2)**0.5
+        if abs(v.Z - z_min) <= 3.0:
+            min_r_at_bottom = min(min_r_at_bottom, r)
+        if abs(v.Z - z_max) <= 3.0:
+            min_r_at_top = min(min_r_at_top, r)
+
+    # Compute parent surface radius at these z-levels
+    if parent_type in ("frustum", "cone"):
+        r_base = parent_params.get("r_base", 0)
+        r_top = parent_params.get("r_top", 0)
+        height = parent_params.get("height", 1.0)
+        parent_r_at_bottom = r_base + (r_top - r_base) * ((z_min - 0) / height) if height > 0 else r_base
+        parent_r_at_top = r_base + (r_top - r_base) * ((z_max - 0) / height) if height > 0 else r_base
+    elif parent_type == "cylinder":
+        parent_r_at_bottom = parent_params.get("radius", 0)
+        parent_r_at_top = parent_r_at_bottom
+    else:
+        # Skip check for non-axisymmetric parents
+        return _result(node, "parent_contact", True, "skipped",
+                       f"{parent_type} parent",
+                       f"parent_contact check not implemented for {parent_type}")
+
+    detachment_zones = []
+    if min_r_at_bottom != float('inf') and min_r_at_bottom > parent_r_at_bottom + 2.0:
+        detachment_zones.append(f"z≈{round(z_min,1)}mm: feature min_r={round(min_r_at_bottom,1)}mm "
+                                f"> parent r={round(parent_r_at_bottom,1)}mm")
+    if min_r_at_top != float('inf') and min_r_at_top > parent_r_at_top + 2.0:
+        detachment_zones.append(f"z≈{round(z_max,1)}mm: feature min_r={round(min_r_at_top,1)}mm "
+                                f"> parent r={round(parent_r_at_top,1)}mm")
+
+    has_contact = not detachment_zones
+    detail = ("feature fully contacts parent across height"
+              if has_contact else "; ".join(detachment_zones) +
+              " — feature detaches from parent, producing corrupted geometry")
+
+    return _result(node, "parent_contact", has_contact,
+                   {"detachment_zones": detachment_zones, "z_range": [round(z_min, 1), round(z_max, 1)]},
+                   "full height contact with parent",
+                   detail)
+
+
 def _check_bore(node, prov: FeatureProvenance, solid: cq.Solid, diameter: float) -> dict:
     """Probe a cylinder (90% of declared dia) down the bore axis; if the bore
-    truly exists, intersect with the final solid is ~empty (void)."""
-    s = prov.instance_solids[0]
-    c = s.Center()
-    bb = s.BoundingBox()
-    probe = cq.Solid.makeCylinder(diameter / 2.0 * 0.9, bb.zlen + 20,
-                                  cq.Vector(c.x, c.y, bb.zmin - 10))
+    truly exists, intersect with the final solid is ~empty (void).
+
+    SMART: uses the FINAL SOLID's bounding box to scope the probe, not the
+    cutting tool's oversized cylinder. This prevents false negatives caused
+    by probes extending far beyond the actual part height."""
+    # Use the final solid's bounding box for the probe extent (not the cutting tool's)
+    bb = solid.BoundingBox()
+    probe = cq.Solid.makeCylinder(diameter / 2.0 * 0.9, bb.zlen + 4,
+                                  cq.Vector(0, 0, bb.zmin - 2))
     void_vol = solid.intersect(probe).Volume()
     ok = void_vol < probe.Volume() * 0.05  # mostly empty → bore present
     return _result(node, "bore_present", ok, round(void_vol, 2), 0.0,

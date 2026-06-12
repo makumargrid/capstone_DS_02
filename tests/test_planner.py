@@ -51,9 +51,9 @@ def test_extract_ir_from_fenced_block():
     assert validate_plan(json.dumps(ir))["valid"]
 
 
-def test_agent_registers_four_tools():
+def test_agent_registers_five_tools():
     names = {t.__name__ for t in root_agent.tools}
-    assert names == {"list_primitives", "get_primitive_schema", "validate_plan", "ask_user"}
+    assert names == {"list_primitives", "get_primitive_schema", "validate_plan", "verify_spatial_placement", "ask_user"}
 
 
 def test_planner_drops_ask_user_when_non_interactive():

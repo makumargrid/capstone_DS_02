@@ -88,10 +88,22 @@ def run_inspection(mesh_path: str, design_brief: dict, output_dir: str, outer_at
     # rag_kb2 error context is injected by execute_meshlib_code() in tools/meshlib_tools.py
     # when a sandbox execution fails — it's appended to stderr so the inspector sees it on
     # the retry. No pre-injection here (baseline dict doesn't contain OCCT tracebacks).
+
+    # Inject CadQuery API reference context for custom/mesh_only nodes so the inspector
+    # has method signatures and examples when writing custom check scripts.
+    kb1_context = ""
+    try:
+        from rag_kb1 import get_api_context
+        kb1_context = get_api_context(design_brief, design_brief.get("prompt", ""))
+    except Exception:
+        pass
+
     message = (f"Mesh Path: {mesh_path}\n\nDesign Brief:\n{json.dumps(design_brief, indent=2)}\n\n"
                f"Baseline Results:\n{json.dumps(baseline, indent=2)}\n\n"
                f"Baseline already covered watertightness/volume/self-intersections/bbox — "
                f"do not repeat. Focus on plan-specific feature verification.")
+    if kb1_context:
+        message += "\n\n" + kb1_context
 
     content = types.Content(role='user', parts=[types.Part(text=message)])
     final_text, events = run_agent(_make_agent, content, role="inspector", app_name="meshlib_agent")

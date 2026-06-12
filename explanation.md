@@ -176,7 +176,7 @@ signature + docstring.
 - Persistent-session wrapper used by the pipeline for all outer iterations within a run.
 - `__init__(interactive, process, question_handler, session_db_uri=None, reuse_session_id=None)`:
   - `session_db_uri`: if set, uses ADK `DatabaseSessionService` (SQLite) so sessions
-    survive across runs. pipeline.py passes `sqlite:///outputs/adk_sessions.db`.
+    survive across runs. pipeline.py passes `sqlite+aiosqlite:///outputs/adk_sessions.db`.
   - `reuse_session_id`: if set, the planner joins an **existing** session — the iterate
     child run inherits full conversation history from the parent run.
   - `self._log = logger` by default; `pipeline.py` replaces it with `log` so planner
@@ -285,9 +285,11 @@ Artifacts per run: `00` log, `01` design_brief, `01b` spec, `01c` decomposition,
 
 ## 11. Status
 
-- **Tests: 108/108** — ir(10), primitives(12), solid_inspector(11), renderer_vision(5),
-  planner(9), reviewer(8), pipeline(5), forgecad(5), spec(9), assembly(15), eval(4),
-  api(17) = 108. Run: `.venv/bin/python tests/test_*.py`.
+- **Verification:** Docker is the authoritative runtime for the full suite because
+  it installs CadQuery, MeshLib, ADK, FastAPI, rendering dependencies, and `pytest`.
+  Fresh Docker verification on 2026-06-08: `127 passed, 7 warnings in 50.92s`.
+  Local lightweight checks can run without CAD dependencies, but local full
+  collection may fail with `No module named cadquery` unless CadQuery/MeshLib are installed.
 - Phase 1 (intent) + Phase 2 (assembly) + Phase 3 (observability/eval) + Phase 4 (API) +
   Phase 5 (ForgeCAD viewer + sliders + reset) + post-launch hardening complete.
   Next: Phase 6 (trace flywheel), Phase 7 (Temporal durability), Phase 8 (hardening/auth).
@@ -300,7 +302,7 @@ Four issues surfaced by a Docker run were fixed:
 
 1. **Envelope doom loop (convergence).** `verification/solid_inspector.py` now
    treats the overall envelope as a **coarse** bound: `eff_tol = max(declared_tol,
-   5% of dim)` (`ENV_REL_TOL`). Gross/collapsed parts still fail.
+   7% of dim)` (`ENV_REL_TOL`). Gross/collapsed parts still fail.
 2. **Twisted-blade thickness false-positive.** `_check_uniform_thickness` reads the
    declared thickness PARAM (blade→`width`, box→min dim, tube→wall) — exact and
    twist/sweep-proof.

@@ -26,7 +26,7 @@ import sys
 import json
 import datetime
 
-from core.env import bootstrap_env
+from core.env import bootstrap_env, diagnostic_summary
 from core.logger import get_agent_logger
 from core.process_detector import detect_process, load_profile
 from geometry_ir import validate_plan
@@ -34,8 +34,14 @@ from primitives import compile_design, export_solid
 from verification import inspect_solid, render_views
 from core.spec import extract_spec, check_coverage, coverage_feedback, decompose
 from core.registry import request_acceptance, record
+from core.compile_errors import translate_error
+from core.timeout import run_with_timeout
+from verification.constraint_translator import translate_failure as _translate_failure
 
 MAX_OUTER = 6
+COMPILE_TIMEOUT_S = 120   # CadQuery solid compilation
+RENDER_TIMEOUT_S = 60     # headless multi-view rendering
+VISION_TIMEOUT_S = 120    # multimodal vision API call
 
 bootstrap_env()
 
@@ -90,6 +96,7 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
 
     log.info("=" * 70)
     log.info("GEOMETRY IR PIPELINE")
+    log.info(diagnostic_summary())
     log.info(f"Output: {out} | interactive={interactive}")
     log.info(f"Prompt: {prompt[:200]}")
 
@@ -124,18 +131,65 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
 
     # ADK session persistence: use SQLite so iterate() can reuse the parent's session.
     _session_db = os.path.join(output_base_dir, "adk_sessions.db")
-    _session_db_uri = f"sqlite:///{_session_db}"
+    _session_db_uri = f"sqlite+aiosqlite:///{_session_db}"
     planner = IRPlanner(interactive=interactive, process=process,
                         question_handler=question_handler,
                         session_db_uri=_session_db_uri,
-                        reuse_session_id=parent_session_id)
+                        reuse_session_id=parent_session_id,
+                        prompt=prompt)
     planner._log = log  # redirect planner-internal logs to the pipeline file logger
     # Save session_id so iterate() can reuse it for full context continuity
     with open(os.path.join(out, "planner_session_id.txt"), "w") as _f:
         _f.write(planner.session_id)
     if parent_session_id:
         log.info(f"[PLANNER] Reusing session {planner.session_id[:8]}... from parent run")
-    _coverage_miss_streak: dict = {}  # req_id → consecutive miss count (doom-loop guard)
+
+    # Load or initialize the doom-loop streak counter (persisted to disk so it
+    # survives crashes/restarts — prevents wasting iterations on phantom reqs).
+    _streak_path = os.path.join(out, "coverage_streak.json")
+    if os.path.exists(_streak_path):
+        try:
+            _coverage_miss_streak = json.loads(open(_streak_path).read())
+            log.info(f"[COVERAGE] Loaded streak state from previous run: {_coverage_miss_streak}")
+        except Exception:
+            _coverage_miss_streak: dict = {}
+    else:
+        _coverage_miss_streak: dict = {}
+
+    # Per-run metrics accumulator (written to disk at every exit path).
+    _metrics: dict[str, any] = {
+        "start_time": ts,
+        "prompt": prompt[:200],
+        "process": process,
+        "domain_blocks": [],
+        "failover_events": 0,
+        "compile_failures": 0,
+        "design_count": 0,
+        "vision_runs": 0,
+        "final_verdict": "none",
+        "total_iterations": 0,
+        "timeouts": 0,
+    }
+
+    # Doom-loop detection: track per-node failure streaks to detect when the
+    # planner is circling on the same failure with non-working fixes.
+    _redo_streaks: dict[str, int] = {}
+    _last_redo_feedback: str | None = None
+
+    def _save_streak():
+        """Persist doom-loop streak counter to disk for crash recovery."""
+        try:
+            json.dump(_coverage_miss_streak, open(_streak_path, "w"))
+        except Exception:
+            pass
+
+    def _save_metrics():
+        """Write per-run metrics to disk."""
+        try:
+            _metrics["total_iterations"] = attempt if "attempt" in dir() else 0
+            json.dump(_metrics, open(os.path.join(out, "metrics.json"), "w"), indent=2)
+        except Exception:
+            pass
 
     # DECOMPOSITION JUDGMENT (independent of the planner): part vs assembly, and
     # how to split — only where it's genuinely an assembly of distinct bodies.
@@ -161,7 +215,9 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
             errs = validate_plan(ir)["errors"] if ir else [{"node": "design", "detail": "no IR emitted"}]
             log.warning(f"[L1] Invalid IR: {errs}")
             if attempt == MAX_OUTER:
-                log.error("[L1] Out of attempts with invalid IR."); _report(out); return out
+                _metrics["final_verdict"] = "invalid_ir_exhausted"
+                _save_metrics(); _save_streak()
+                log.error("[L1] Out of attempts with invalid IR."); _report(out, _metrics); return out
             text, ir = planner.revise_ir(
                 "Your IR failed validation. Fix these node-keyed errors and "
                 f"re-emit the full IR:\n{json.dumps(errs, indent=2)}")
@@ -169,31 +225,71 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
             continue
         _save(out, f"03_outer{attempt}_ir.json", json.dumps(ir, indent=2))
         log.info("[L1] ✅ IR valid.")
+        _metrics["design_count"] += 1
 
-        # Compile (geometry authority).
+        # Compile (geometry authority) — with timeout protection.
         try:
-            solid, prov = compile_design(ir)
+            (solid, prov), timed_out = run_with_timeout(compile_design, ir, timeout=COMPILE_TIMEOUT_S)
+            if timed_out:
+                _metrics["timeouts"] += 1
+                log.warning(f"[COMPILE] Timed out after {COMPILE_TIMEOUT_S}s")
+                if attempt == MAX_OUTER:
+                    _metrics["final_verdict"] = "compile_timeout_exhausted"
+                    _save_metrics(); _save_streak()
+                    log.error("[COMPILE] Out of attempts."); _report(out, _metrics); return out
+                text, ir = planner.revise_ir(
+                    f"Compilation timed out after {COMPILE_TIMEOUT_S}s. Simplify the geometry or "
+                    "reduce feature complexity, then re-emit the full IR.")
+                continue
         except Exception as e:
-            log.warning(f"[COMPILE] Failed: {e}")
+            _metrics["compile_failures"] += 1
+            raw = str(e)
+            readable = translate_error(raw)
+            log.warning(f"[COMPILE] Failed: {raw}")
             if attempt == MAX_OUTER:
-                log.error("[COMPILE] Out of attempts."); _report(out); return out
-            text, ir = planner.revise_ir(f"Compilation failed: {e}. Fix the offending feature and re-emit the full IR.")
+                _metrics["final_verdict"] = "compile_exhausted"
+                _save_metrics(); _save_streak()
+                log.error("[COMPILE] Out of attempts."); _report(out, _metrics); return out
+            text, ir = planner.revise_ir(
+                f"Compilation failed. {readable}\n\n"
+                "Fix the offending feature and re-emit the full IR.")
             continue
 
         step = export_solid(solid, os.path.join(out, f"04_outer{attempt}_model.step"))
         stl = export_solid(solid, os.path.join(out, f"04_outer{attempt}_model.stl"))
         log.info(f"[COMPILE] ✅ solids={len(solid.Solids())} vol={solid.Volume():.0f} → {os.path.basename(step)}/{os.path.basename(stl)}")
 
+        # ── COMPILER DIAGNOSTICS: log + surface to reviewer ──────────────────
+        from primitives.compiler import get_last_diagnostics as _get_diags
+        _compiler_diags = _get_diags()
+        for _d in _compiler_diags:
+            log.warning(f"[COMPILE-DIAG] {_d.feature_id}: {_d.issue} — {_d.detail}")
+        # ── /compiler diagnostics ────────────────────────────────────────────
+
         # L2: deterministic intent ground truth.
         l2 = inspect_solid(ir, solid, prov, min_wall_mm=min_wall)
         _save(out, f"05_outer{attempt}_solid_inspection.json", json.dumps(l2, indent=2))
         log.info(f"[L2] valid={l2['valid']} failures={l2['hard_failures']}")
+
+        # ── CONSTRAINT TRANSLATION: map L2 failures to specific parameter targets ──
+        _constraint_fixes: list[str] = []
+        for _c in l2.get("checks", []) or []:
+            if not _c.get("passed") and _c.get("claim") not in ("envelope_x_mm", "envelope_y_mm"):
+                try:
+                    _fix = _translate_failure(_c, prov, ir, solid)
+                    if _fix:
+                        _constraint_fixes.append(f"[{_c['node']}.{_c['claim']}] {_fix}")
+                        log.info(f"[CONSTRAINT] {_c['node']}.{_c['claim']}: {_fix[:120]}...")
+                except Exception as _e:
+                    log.warning(f"[CONSTRAINT] translation failed for {_c['node']}.{_c['claim']}: {_e}")
+        # ── /constraint translation ────────────────────────────────────────────────
 
         # L3: render + advisory vision (best-effort).
         vision = None
         try:
             views = render_views(solid, out, prefix=f"09_outer{attempt}_view")
             if run_vision_verification:
+                _metrics["vision_runs"] += 1
                 vision = run_vision_verification(views, _intent(ir))
                 _save(out, f"06_outer{attempt}_vision_findings.json", json.dumps(vision, indent=2))
         except Exception as e:
@@ -252,14 +348,18 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
                         pass
                     else:
                         if attempt == MAX_OUTER:
-                            log.error("Out of attempts; intent not fully covered."); _report(out); return out
+                            _metrics["final_verdict"] = "coverage_exhausted"
+                            _save_metrics(); _save_streak()
+                            log.error("Out of attempts; intent not fully covered."); _report(out, _metrics); return out
                         text, ir = planner.revise_ir(coverage_feedback(cov["missing"]))
                         _save(out, f"02_outer{attempt}_planner_revision.txt", text)
                         continue
                 else:
                     # No downgrade yet — still trying
                     if attempt == MAX_OUTER:
-                        log.error("Out of attempts; intent not fully covered."); _report(out); return out
+                        _metrics["final_verdict"] = "coverage_exhausted"
+                        _save_metrics(); _save_streak()
+                        log.error("Out of attempts; intent not fully covered."); _report(out, _metrics); return out
                     text, ir = planner.revise_ir(coverage_feedback(cov["missing"]))
                     _save(out, f"02_outer{attempt}_planner_revision.txt", text)
                     continue
@@ -267,10 +367,13 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
             if not cov["covered"]:
                 # Should only reach here if we had downgraded but still have missing
                 if attempt == MAX_OUTER:
-                    log.error("Out of attempts; intent not fully covered."); _report(out); return out
+                    _metrics["final_verdict"] = "coverage_exhausted"
+                    _save_metrics(); _save_streak()
+                    log.error("Out of attempts; intent not fully covered."); _report(out, _metrics); return out
                 text, ir = planner.revise_ir(coverage_feedback(cov["missing"]))
                 _save(out, f"02_outer{attempt}_planner_revision.txt", text)
                 continue
+            _save_streak()
             log.info("=" * 70)
             log.info("✅ APPROVED — geometry valid AND user-intent spec covered.")
             _save(out, "APPROVED_ir.json", json.dumps(ir, indent=2))
@@ -289,19 +392,58 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
             record(out, prompt, spec, ir, cov, verdict, accepted, by)
             log.info(f"[ACCEPT] accepted={accepted} by={by}; registry updated.")
             log.info(f"Artifacts: {out}")
-            _report(out); return out
+            _metrics["final_verdict"] = "approved"
+            _save_metrics(); _save_streak()
+            _report(out, _metrics); return out
         if decision == "HALT":
-            log.error("🛑 HALT — human review required."); _report(out); return out
-        # REDESIGN
+            _metrics["final_verdict"] = "halt"
+            _save_metrics(); _save_streak()
+            log.error("🛑 HALT — human review required."); _report(out, _metrics); return out
+        # REDESIGN — with doom-loop detection for repeated node/claim failures
         rec = verdict["recommendations_for_planner"]
+
+        # ── Inject constraint-based guidance into the feedback ──────────────
+        if _constraint_fixes:
+            _enhanced = (rec or "")
+            _enhanced += "\n\n--- CONSTRAINT-BASED GUIDANCE (use these specific numbers) ---\n"
+            _enhanced += "\n\n".join(_constraint_fixes)
+            rec = _enhanced
+            log.info(f"[FEEDBACK] augmented with {len(_constraint_fixes)} constraint translation(s)")
+        # ── /constraint injection ───────────────────────────────────────────
+
         log.warning(f"[REVIEW] 🔄 REDESIGN: {rec}")
+
+        # Track per-node failure streaks. If the same feature.claim fails
+        # 2+ times in a row, escalate the feedback to force a different approach.
+        _failed = l2.get("hard_failures", []) if l2 else []
+        for _f in _failed:
+            _key = _f.split(":")[0].strip()  # e.g. "bore.bore_present"
+            _redo_streaks[_key] = _redo_streaks.get(_key, 0) + 1
+        # Find the highest streak among current failures
+        _max_streak = max((_redo_streaks.get(f.split(":")[0].strip(), 1) for f in _failed), default=1)
+        if _max_streak >= 2:
+            _escalated = (
+                f"\n\nDOOM-LOOP WARNING: The same failure has occurred "
+                f"{_max_streak} iterations in a row — your previous fixes did NOT "
+                f"work. Try a FUNDAMENTALLY DIFFERENT approach: change the "
+                f"feature's position, dimensions, or type, not just tweak parameters. "
+                f"If this is a bore being refilled by a union feature, reposition "
+                f"the union feature away from the bore axis. If this is an embedded "
+                f"feature, increase its radial reach significantly.\n"
+            )
+            rec = _escalated + rec
+            log.warning(f"[DOOM-LOOP] streak={_max_streak} on failures={_failed}")
         if attempt == MAX_OUTER:
-            log.error("Out of attempts; not approved."); _report(out); return out
+            _metrics["final_verdict"] = "redesign_exhausted"
+            _save_metrics(); _save_streak()
+            log.error("Out of attempts; not approved."); _report(out, _metrics); return out
         text, ir = planner.revise_ir(rec)
         _save(out, f"02_outer{attempt}_planner_revision.txt", text)
 
+    _metrics["final_verdict"] = "max_iterations"
+    _save_metrics(); _save_streak()
     log.warning("Completed all outer iterations without APPROVED.")
-    _report(out); return out
+    _report(out, _metrics); return out
 
 
 def _run_assembly(planner, prompt, spec, components, out, log, interactive, min_wall):
@@ -338,10 +480,13 @@ def _run_assembly(planner, prompt, spec, components, out, log, interactive, min_
             export_solid(compound, os.path.join(out, f"04_outer{attempt}_assembly.step"))
             export_solid(compound, os.path.join(out, f"04_outer{attempt}_assembly.stl"))
         except Exception as e:
-            log.warning(f"[COMPILE] Assembly failed: {e}")
+            raw = str(e)
+            readable = translate_error(raw)
+            log.warning(f"[COMPILE] Assembly failed: {raw}")
             if attempt == MAX_OUTER:
                 _report(out); return out
-            text, asm = planner.revise_assembly(f"Assembly compilation failed: {e}. Fix and re-emit."); continue
+            text, asm = planner.revise_assembly(
+                f"Assembly compilation failed. {readable}\n\nFix and re-emit the full Assembly IR."); continue
         log.info(f"[COMPILE] ✅ bodies={len(compound.Solids())} bbox z={bb.zmin:.0f}->{bb.zmax:.0f}")
 
         l2 = inspect_assembly(asm, min_wall_mm=min_wall)
@@ -389,7 +534,14 @@ def _run_assembly(planner, prompt, spec, components, out, log, interactive, min_
     _report(out); return out
 
 
-def _report(out_dir: str):
+def _report(out_dir: str, metrics: dict | None = None):
+    """Build the run report and save metrics if provided."""
+    if metrics:
+        try:
+            metrics["total_iterations"] = metrics.get("total_iterations", 0)
+            json.dump(metrics, open(os.path.join(out_dir, "metrics.json"), "w"), indent=2)
+        except Exception:
+            pass
     try:
         from reporting import build_report
         build_report(out_dir)

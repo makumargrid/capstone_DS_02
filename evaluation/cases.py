@@ -29,7 +29,7 @@ def _blades(item, count=7):
 
 
 _BOX_BLADE = {"id": "b", "type": "box", "params": {"at": [45, 0, 0], "length": 40, "width": 2, "height": 60}}
-_SWEPT_BLADE = {"id": "b", "type": "blade", "params": {"at": [45, 0, 0], "width": 2, "chord": 40, "height": 60, "twist_deg": 30}}
+_SWEPT_BLADE = {"id": "b", "type": "blade", "params": {"at": [45, 0, 0], "width": 2, "chord": 40, "height": 60, "twist_deg": 30, "lean_deg": 30}}
 
 IMPELLER_SPEC = [
     {"id": "r1", "claim": "count", "target": "blades", "expected": 7, "severity": "required", "description": "7 blades"},

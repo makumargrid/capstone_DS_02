@@ -17,9 +17,12 @@ import json
 import logging
 import threading
 
+import math
+
 from geometry_ir import validate_plan as _validate_plan
 from primitives import list_primitives as _list_primitives
 from primitives.params import PARAM_MODELS
+from primitives.registry import LEAF_BUILDERS
 
 logger = logging.getLogger("planner_tools")
 
@@ -101,3 +104,121 @@ def ask_user(question: str) -> str:
     logger.info(f"Non-interactive; planner asked: {question}")
     return ("Running non-interactively — proceed with best engineering judgment "
             "based on the prompt.")
+
+
+def verify_spatial_placement(feature_type: str, feature_params: dict,
+                             parent_type: str, parent_params: dict) -> dict:
+    """Check whether a union feature physically protrudes from its parent body.
+
+    Builds BOTH the feature solid and the parent solid using the exact same
+    builders the compiler will use, then measures how much of the feature
+    extends beyond the parent. Use this BEFORE emitting your IR to verify
+    that blades, bosses, ribs, fins, or any union feature will be VISIBLE
+    and not embedded inside the parent.
+
+    Args:
+        feature_type: the primitive type (e.g. 'blade', 'box', 'cylinder')
+        feature_params: the feature's params dict (at, chord, height, width, etc.)
+        parent_type: the parent's type (e.g. 'frustum', 'cone', 'box', 'cylinder')
+        parent_params: the parent's params dict (r_base, r_top, height, etc.)
+
+    Returns:
+        {protrudes: bool, embedded_ratio: float (0=all new, 1=total embedded),
+         feature_max_radius: float, parent_max_radius: float,
+         assessment: str (plain-language explanation of findings),
+         suggestion: str (what to change if embedded)}
+    """
+    try:
+        import cadquery as cq
+    except ImportError:
+        return {"error": "CadQuery is not available in this environment"}
+
+    # Build the parent solid
+    parent_builder = LEAF_BUILDERS.get(parent_type)
+    if parent_builder is None:
+        return {"error": f"Unknown parent type '{parent_type}'. Known: {sorted(LEAF_BUILDERS)}"}
+    parent_builder_fn, parent_model = parent_builder
+    try:
+        parent_solid = parent_builder_fn(parent_model.model_validate(parent_params), {})
+    except Exception as e:
+        return {"error": f"Failed to build parent: {e}"}
+
+    # Build the feature solid
+    feat_builder = LEAF_BUILDERS.get(feature_type)
+    if feat_builder is None:
+        return {"error": f"Unknown feature type '{feature_type}'. Known: {sorted(LEAF_BUILDERS)}"}
+    feat_builder_fn, feat_model = feat_builder
+    try:
+        feat_solid = feat_builder_fn(feat_model.model_validate(feature_params), {})
+    except Exception as e:
+        return {"error": f"Failed to build feature: {e}"}
+
+    feat_vol = feat_solid.Volume()
+    if feat_vol <= 0:
+        return {"error": "Feature has zero or negative volume"}
+
+    # Compute embedded ratio
+    try:
+        embedded_intersection = feat_solid.intersect(parent_solid)
+        embedded_vol = embedded_intersection.Volume()
+    except Exception:
+        embedded_vol = feat_vol  # assume worst case if intersect fails
+    embedded_ratio = min(1.0, embedded_vol / feat_vol) if feat_vol > 0 else 1.0
+    external_vol = max(0.0, feat_vol - embedded_vol)
+
+    # Compute max radii (for rotationally-symmetric parts)
+    feat_bb = feat_solid.BoundingBox()
+    parent_bb = parent_solid.BoundingBox()
+    feat_max_r = max(
+        (v.X ** 2 + v.Y ** 2) ** 0.5 for v in feat_solid.Vertices()
+    ) if feat_solid.Vertices() else 0.0
+    parent_max_r = max(
+        (v.X ** 2 + v.Y ** 2) ** 0.5 for v in parent_solid.Vertices()
+    ) if parent_solid.Vertices() else 0.0
+
+    protrudes = embedded_ratio < 0.90
+    pct_embedded = embedded_ratio * 100
+    pct_protruding = (1 - embedded_ratio) * 100
+
+    if embedded_ratio < 0.05:
+        assessment = (
+            f"The {feature_type} is well-positioned: {pct_protruding:.0f}% of its "
+            f"volume ({external_vol:.0f}mm³ of {feat_vol:.0f}mm³) protrudes beyond "
+            f"the {parent_type}. Maximum feature radius {feat_max_r:.1f}mm vs "
+            f"parent max radius {parent_max_r:.1f}mm."
+        )
+        suggestion = "Placement looks good. Proceed with your design."
+    elif embedded_ratio < 0.50:
+        assessment = (
+            f"The {feature_type} partially protrudes: {pct_protruding:.0f}% outside, "
+            f"{pct_embedded:.0f}% inside the {parent_type}. Feature max radius "
+            f"{feat_max_r:.1f}mm vs parent max radius {parent_max_r:.1f}mm."
+        )
+        suggestion = (
+            f"Consider moving the feature outward (increase at[0]) or increasing "
+            f"its radial size (chord/radius) by ~{parent_max_r - feat_max_r:.0f}mm "
+            f"so more of it protrudes."
+        )
+    else:
+        assessment = (
+            f"WARNING: The {feature_type} is {pct_embedded:.0f}% embedded inside the "
+            f"{parent_type} — only {pct_protruding:.0f}% ({external_vol:.0f}mm³ of "
+            f"{feat_vol:.0f}mm³) protrudes. Feature max radius {feat_max_r:.1f}mm is "
+            f"within parent max radius {parent_max_r:.1f}mm."
+        )
+        suggestion = (
+            f"Move the {feature_type} outward: increase at[0] by at least "
+            f"{parent_max_r - feat_max_r:.0f}mm, or increase its radial size. "
+            f"For blade on cone/frustum, set lean_deg=0 initially and verify positioning."
+        )
+
+    return {
+        "protrudes": protrudes,
+        "embedded_ratio": round(embedded_ratio, 4),
+        "feature_volume": round(feat_vol, 2),
+        "external_volume": round(external_vol, 2),
+        "feature_max_radius": round(feat_max_r, 1),
+        "parent_max_radius": round(parent_max_r, 1),
+        "assessment": assessment,
+        "suggestion": suggestion,
+    }

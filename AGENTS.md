@@ -11,7 +11,7 @@
 - `docker build -t agentic-cad-pipeline .`: build the recommended runtime image.
 - `docker run --env-file .env -v "$(pwd)/outputs:/app/outputs" agentic-cad-pipeline python pipeline.py "<prompt>"`: run full pipeline in container.
 - `python pipeline.py "<prompt>"` or `python pipeline.py --interactive "<prompt>"`: local execution.
-- `./agents/.agnts/bin/python -m google.adk.cli web --session_service_uri sqlite:///outputs/adk_sessions.db --port 8080 agents`: inspect agent sessions in ADK Web UI.
+- `./agents/.agnts/bin/python -m google.adk.cli web --session_service_uri sqlite+aiosqlite:///outputs/adk_sessions.db --port 8080 agents`: inspect agent sessions in ADK Web UI.
 - `python scratch_test.py`: quick MeshLib binding smoke check.
 
 ## Coding Style & Naming Conventions

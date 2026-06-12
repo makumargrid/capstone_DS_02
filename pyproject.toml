@@ -1,0 +1,4 @@
+[tool.pyright]
+include = ["core", "agents", "primitives", "geometry_ir", "tools", "verification", "webui", "pipeline.py"]
+venvPath = "."
+venv = ".venv"
