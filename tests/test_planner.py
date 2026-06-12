@@ -34,7 +34,8 @@ def test_validate_plan_tool_accepts_json_string():
 
 def test_validate_plan_tool_reports_node_errors():
     ir = pattern_box_ir()
-    del ir["features"][0]["params"]["r_base"]
+    # cylinder param is "radius", not "r_base" — remove it to cause a validation error
+    del ir["features"][0]["params"]["radius"]
     r = validate_plan(json.dumps(ir))
     assert not r["valid"]
     assert any(e["node"] == "hub" for e in r["errors"])
@@ -53,13 +54,13 @@ def test_extract_ir_from_fenced_block():
 
 def test_agent_registers_five_tools():
     names = {t.__name__ for t in root_agent.tools}
-    assert names == {"list_primitives", "get_primitive_schema", "validate_plan", "verify_spatial_placement", "ask_user"}
+    assert names == {"list_primitives", "get_primitive_schema", "validate_plan", "verify_spatial_placement", "_ask_user_terminal"}
 
 
 def test_planner_drops_ask_user_when_non_interactive():
     p = IRPlanner(interactive=False)
     names = {t.__name__ for t in p.agent.tools}
-    assert "ask_user" not in names and "validate_plan" in names
+    assert "ask_user" not in names and "_ask_user_terminal" not in names and "validate_plan" in names
 
 
 def test_planner_uses_injected_question_handler_when_interactive():

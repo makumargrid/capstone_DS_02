@@ -158,11 +158,31 @@ def inspect_solid(design: Design | dict, solid: cq.Solid,
         if "bore_diameter_mm" in a:
             checks.append(_check_bore(feat.id, prov, solid, a["bore_diameter_mm"]))
 
+    # 5. Fillet/chamfer verification: measure realized radius/length.
+    for feat in design.features:
+        if feat.type == "fillet" and feat.op == "fillet":
+            declared = feat.params.get("radius", 1.0)
+            checks.append(_check_fillet_radius(feat.id, solid, declared))
+        elif feat.type == "chamfer" and feat.op == "chamfer":
+            declared = feat.params.get("length", 1.0)
+            checks.append(_check_chamfer_length(feat.id, solid, declared))
+
     # Wall thickness floor (DFM) — only meaningful when min_wall declared by process.
     # Applied to non-mesh, non-pattern leaf features as a one-sided floor; the
     # two-sided uniform check above is the authoritative thin-wall guard.
 
-    hard = [c for c in checks if not c["passed"]]
+    # ── Partition checks into blocking (structural) vs advisory (DFM) ─────────
+    # Blocking claims drive `valid` — each represents a hard geometry or intent
+    # failure. DFM claims (overhang_angle, bridge_span, min_hole_diameter_mm,
+    # min_feature_size_mm, draft_angle) are advisory: reported to the reviewer
+    # but don't block approval on their own. The reviewer may still REDESIGN on
+    # DFM failures, but a part that's geometrically correct and intent-covered
+    # is valid regardless.
+    _DFM_CLAIMS = {
+        "overhang_angle", "bridge_span", "min_hole_diameter_mm",
+        "min_feature_size_mm", "draft_angle",
+    }
+    hard = [c for c in checks if not c["passed"] and c["claim"] not in _DFM_CLAIMS]
     return {"valid": not hard, "checks": checks,
             "hard_failures": [f"{c['node']}.{c['claim']}: measured {c['measured']} expected {c['expected']}"
                               for c in hard]}
@@ -333,9 +353,69 @@ def _check_bore(node, prov: FeatureProvenance, solid: cq.Solid, diameter: float)
                    f"residual material inside bore dia {diameter}mm")
 
 
-def inspect_ir(design: Design | dict, min_wall_mm: float = 2.0) -> dict:
-    """Convenience: compile then inspect (used in tests/demo)."""
+import math as _math
+
+def _check_fillet_radius(node: str, solid: cq.Solid, declared_radius: float) -> dict:
+    """Measure realized fillet radius from volume-to-bbox ratio.
+
+    For a box with all edges filleted, bbox = original - 2*r.
+    Measured as: r = (V/(d1*d2) - d0) / 2  where d0≤d1≤d2 are bbox dims.
+    Tolerance: ±35% or ±1.0mm, whichever is larger.
+    """
+    bb = solid.BoundingBox()
+    vol = solid.Volume()
+    dims = sorted([bb.xlen, bb.ylen, bb.zlen])
+
+    measured_r = 0.0
+    if vol > 0 and dims[1] > 0 and dims[2] > 0:
+        estimated_orig_min = vol / (dims[1] * dims[2])
+        measured_r = (estimated_orig_min - dims[0]) / 2.0
+
+    tol = max(declared_radius * 0.35, 1.0)
+    ok = abs(measured_r - declared_radius) <= tol
+    return _result(node, "fillet_radius_mm", ok,
+                   round(measured_r, 3), declared_radius,
+                   f"estimated fillet radius {measured_r:.3f}mm from bbox"
+                   f" (tol ±{tol:.2f}mm)"
+                   + ("" if ok else f" — deviation {abs(measured_r - declared_radius):.3f}mm"))
+
+
+def _check_chamfer_length(node: str, solid: cq.Solid, declared_length: float) -> dict:
+    """Measure realized chamfer length from volume-to-bbox ratio.
+
+    For a box with all edges chamfered, bbox = original - 2*c.
+    Measured as: c = (V/(d1*d2) - d0) / 2  where d0≤d1≤d2 are bbox dims.
+    Tolerance: ±35% or ±1.0mm, whichever is larger.
+    """
+    bb = solid.BoundingBox()
+    vol = solid.Volume()
+    dims = sorted([bb.xlen, bb.ylen, bb.zlen])
+
+    measured_c = 0.0
+    if vol > 0 and dims[1] > 0 and dims[2] > 0:
+        estimated_orig_min = vol / (dims[1] * dims[2])
+        measured_c = (estimated_orig_min - dims[0]) / 2.0
+
+    tol = max(declared_length * 0.35, 1.0)
+    ok = abs(measured_c - declared_length) <= tol
+    return _result(node, "chamfer_length_mm", ok,
+                   round(measured_c, 3), declared_length,
+                   f"estimated chamfer {measured_c:.3f}mm from bbox"
+                   f" (tol ±{tol:.2f}mm)"
+                   + ("" if ok else f" — deviation {abs(measured_c - declared_length):.3f}mm"))
+
+
+def inspect_ir(design: Design | dict, min_wall_mm: float = 2.0,
+               profile: dict | None = None) -> dict:
+    """Convenience: compile then inspect (used in tests/demo).
+
+    If profile is not provided, loads the profile for the design's process.
+    """
     if isinstance(design, dict):
         design = Design.model_validate(design)
     solid, prov = compile_design(design)
-    return inspect_solid(design, solid, prov, min_wall_mm)
+    if profile is None:
+        from core.process_detector import load_profile
+        profile = load_profile(design.process)
+    return inspect_solid(design, solid, prov, min_wall_mm, profile=profile)
+

@@ -142,3 +142,100 @@ def tiny_feature_ir() -> dict:
              "params": {"at": [0, 0, 5], "length": 0.3, "width": 0.3, "height": 0.3}},
         ],
     }
+
+
+# ── FIX 1: Inverted frustum overhang repro ─────────────────────────────────
+def inverted_frustum_ir(process="FDM") -> dict:
+    """FIX 1 repro: inverted frustum (r_base=8, r_top=30, height=15) on FDM.
+    ~55° overhang from vertical — must fail max_overhang_deg=45."""
+    return {
+        "version": "1.0", "units": "mm", "process": process,
+        "envelope": {"x_mm": 60, "y_mm": 60, "z_mm": 15, "tolerance_mm": 2},
+        "features": [
+            {"id": "b", "type": "frustum", "op": "union",
+             "params": {"r_base": 8, "r_top": 30, "height": 15}},
+        ],
+    }
+
+
+def vertical_cylinder_ir() -> dict:
+    """Vertical-wall cylinder — no overhang, should pass."""
+    return {
+        "version": "1.0", "units": "mm", "process": "FDM",
+        "envelope": {"x_mm": 30, "y_mm": 30, "z_mm": 20, "tolerance_mm": 2},
+        "features": [
+            {"id": "c", "type": "cylinder", "params": {"radius": 10, "height": 20}},
+        ],
+    }
+
+
+def shallow_cone_ir() -> dict:
+    """Cone with r_base=30, r_top=15, height=20 — slope ~37° from vertical.
+    Should pass FDM max_overhang_deg=45."""
+    return {
+        "version": "1.0", "units": "mm", "process": "FDM",
+        "envelope": {"x_mm": 60, "y_mm": 60, "z_mm": 25, "tolerance_mm": 3},
+        "features": [
+            {"id": "cone", "type": "cone", "params": {"r_base": 30, "r_top": 15, "height": 20}},
+        ],
+    }
+
+
+# ── FIX 2: Anchor placement repro ──────────────────────────────────────────
+def anchored_cone_on_cylinder_ir(cylinder_height=30) -> dict:
+    """FIX 2 repro: cone anchored via bottom_center→top_center on cylinder."""
+    return {
+        "version": "1.0", "units": "mm", "process": "FDM",
+        "envelope": {"x_mm": 60, "y_mm": 60, "z_mm": cylinder_height + 20, "tolerance_mm": 3},
+        "features": [
+            {"id": "base", "type": "cylinder",
+             "params": {"radius": 20, "height": cylinder_height}},
+            {"id": "cap", "type": "cone", "op": "union", "target": "base",
+             "params": {"r_base": 20, "r_top": 0, "height": 15},
+             "anchor": {"to": "base", "from_face": "bottom_center",
+                        "to_face": "top_center", "align": "concentric"}},
+        ],
+    }
+
+
+def anchor_bad_vocab_ir() -> dict:
+    """FIX 2: anchor with to_face:"top" (bad vocab) — should raise ValueError."""
+    return {
+        "version": "1.0", "units": "mm", "process": "FDM",
+        "envelope": {"x_mm": 40, "y_mm": 40, "z_mm": 45, "tolerance_mm": 2},
+        "features": [
+            {"id": "base", "type": "cylinder",
+             "params": {"radius": 20, "height": 30}},
+            {"id": "cap", "type": "cone", "op": "union", "target": "base",
+             "params": {"r_base": 20, "r_top": 0, "height": 15},
+             "anchor": {"to": "base", "from_face": "bottom_center",
+                        "to_face": "top", "align": "concentric"}},
+        ],
+    }
+
+
+# ── FIX 5: Fillet/chamfer verification ─────────────────────────────────────
+def fillet_box_ir(radius=3.0) -> dict:
+    """Box with a fillet at declared radius."""
+    return {
+        "version": "1.0", "units": "mm", "process": "FDM",
+        "envelope": {"x_mm": 30, "y_mm": 30, "z_mm": 20, "tolerance_mm": 3},
+        "features": [
+            {"id": "b", "type": "box", "params": {"length": 20, "width": 20, "height": 15}},
+            {"id": "f", "type": "fillet", "op": "fillet", "target": "b",
+             "params": {"radius": radius}},
+        ],
+    }
+
+
+def chamfer_box_ir(length=2.0) -> dict:
+    """Box with a chamfer at declared length."""
+    return {
+        "version": "1.0", "units": "mm", "process": "FDM",
+        "envelope": {"x_mm": 30, "y_mm": 30, "z_mm": 20, "tolerance_mm": 3},
+        "features": [
+            {"id": "b", "type": "box", "params": {"length": 20, "width": 20, "height": 15}},
+            {"id": "c", "type": "chamfer", "op": "chamfer", "target": "b",
+             "params": {"length": length}},
+        ],
+    }

@@ -61,6 +61,19 @@ for _cfg in load_all_primitive_configs():
     )
     FORGECAD_MAP[_type] = _forgecad
 
+# ── Reverse check: every canonical primitive must have a YAML ────────────────
+# This catches the "removed YAML → silently smaller registry" failure mode.
+_CANONICAL_PRIMITIVES = {"cylinder", "cone", "frustum", "box", "hole", "sphere", "tube", "profile"}
+
+if set(LEAF_BUILDERS) != _CANONICAL_PRIMITIVES:
+    _missing = _CANONICAL_PRIMITIVES - set(LEAF_BUILDERS)
+    _extra = set(LEAF_BUILDERS) - _CANONICAL_PRIMITIVES
+    raise ImportError(
+        f"Registry mismatch with canonical set: "
+        f"missing={_missing or 'none'}, extra={_extra or 'none'}. "
+        f"Every canonical primitive must have a matching YAML in config/primitives/."
+    )
+
 # ── Hardcoded structural (non-leaf) types ────────────────────────────────────
 FORGECAD_MAP.update({
     "circular_pattern": "circularPattern",

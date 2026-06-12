@@ -88,7 +88,12 @@ def resolve_anchor(anchor: dict, target_solid: cq.Solid,
 
 
 def _face_point(bbox, face_name: str) -> tuple[float, float, float]:
-    """Return the anchor point on a bounding box face."""
+    """Return the anchor point on a bounding box face.
+
+    Valid face names: bottom_center | top_center | center
+    Raises ValueError on unknown face names (loud, not silent fallback).
+    """
+    _VALID_FACE_NAMES = {"bottom_center", "top_center", "center"}
     cx = (bbox.xmin + bbox.xmax) / 2
     cy = (bbox.ymin + bbox.ymax) / 2
     if face_name == "bottom_center":
@@ -98,4 +103,7 @@ def _face_point(bbox, face_name: str) -> tuple[float, float, float]:
     elif face_name == "center":
         return (cx, cy, (bbox.zmin + bbox.zmax) / 2)
     else:
-        return (cx, cy, bbox.zmin)  # default: bottom center
+        raise ValueError(
+            f"Unknown anchor face name '{face_name}'. "
+            f"Valid names: {sorted(_VALID_FACE_NAMES)}"
+        )

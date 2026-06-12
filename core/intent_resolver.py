@@ -58,8 +58,13 @@ def _pin_dimensions(prompt: str) -> list[dict]:
 
 def _ground_spec(spec: list[dict], prompt: str) -> list[dict]:
     """Ground spec requirements with standards values where dimensions are missing.
-    Returns updated spec with source citations."""
-    from core.standards import lookup_standard
+    Returns updated spec with source citations.
+
+    Priority order:
+      1. Bolt clearance hole (for bore/hole targets mentioning M-size bolt)
+      2. General standards lookup (bolt dimensions, fits, materials)
+    """
+    from core.standards import lookup_standard, lookup_clearance_hole
 
     for r in spec:
         if r.get("expected") is not None:
@@ -68,7 +73,21 @@ def _ground_spec(spec: list[dict], prompt: str) -> list[dict]:
         desc = r.get("description", "")
         target = r.get("target", "")
 
-        # Try standards lookup from description or target+prompt context
+        # Priority 1: bolt clearance hole for bore/hole targets
+        # When a bore/hole mentions an M-bolt size, use the clearance hole
+        # diameter (ISO 273), NOT the bolt major diameter.
+        if target.lower() in ("bore", "hole"):
+            m = re.search(r'M(\d+)', (desc + " " + prompt).upper())
+            if m:
+                bolt = m.group(0)
+                hole = lookup_clearance_hole(bolt)
+                if hole:
+                    r["expected"] = hole["value"]
+                    r["source"] = hole["source"]
+                    r["tolerance"] = r.get("tolerance") or 0.5
+                    continue  # Don't overwrite with general lookup
+
+        # Priority 2: general standards lookup from description or target+prompt context
         query = f"{target} {desc} {prompt[:200]}"
         std = lookup_standard(query)
 
@@ -76,18 +95,6 @@ def _ground_spec(spec: list[dict], prompt: str) -> list[dict]:
             r["expected"] = std.get("value")
             r["source"] = std.get("source", "engineering standard")
             r["tolerance"] = r.get("tolerance") or 0.5
-
-        # If it's a bore and no standard found, try bolt clearance
-        if r.get("expected") is None and target.lower() in ("bore", "hole"):
-            # Check for M-size bolt references
-            m = re.search(r'M(\d+)', prompt.upper())
-            if m:
-                bolt = m.group(0)
-                from core.standards import lookup_clearance_hole
-                hole = lookup_clearance_hole(bolt)
-                if hole:
-                    r["expected"] = hole["value"]
-                    r["source"] = hole["source"]
 
     return spec
 

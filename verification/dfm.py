@@ -20,41 +20,86 @@ def _result(node, claim, passed, measured, expected, detail=""):
             "measured": measured, "expected": expected, "detail": detail}
 
 
+# ── Centroid-oriented normal helper ──────────────────────────────────────────
+
+def _orient_normal(face_center, raw_normal, centroid):
+    """Orient a face normal to point AWAY from the solid centroid.
+
+    CadQuery's face.normalAt() may point inward or outward depending on
+    the underlying OCCT face orientation — unreliable for conical/frustum
+    surfaces.  This fix computes a vector from the solid centroid to the
+    face center and flips the normal so it has a positive dot product with
+    that vector (i.e. points outward).
+    """
+    cx, cy, cz = centroid.x, centroid.y, centroid.z
+    fx, fy, fz = face_center.x, face_center.y, face_center.z
+    # Vector from centroid to face center
+    dx, dy, dz = fx - cx, fy - cy, fz - cz
+    dot = dx * raw_normal.x + dy * raw_normal.y + dz * raw_normal.z
+    if dot < 0:
+        # Flip the normal to point outward
+        return type(raw_normal)(-raw_normal.x, -raw_normal.y, -raw_normal.z)
+    return raw_normal
+
+
 # ── Overhang angle ───────────────────────────────────────────────────────────
 
 def _check_overhang(solid: cq.Solid, profile: dict, design) -> list[dict]:
-    """Flag faces whose angle from horizontal exceeds max_overhang_deg.
-    Build direction is +Z. The overhang angle is measured as the angle between
-    the face normal and the -Z direction (i.e., how steeply the face slopes)."""
+    """Flag faces whose overhang angle from horizontal exceeds max_overhang_deg.
+
+    Build direction is +Z.  A face is an overhang when its outward-pointing
+    normal has a downward Z component — meaning the surface faces downward
+    and would need support material.
+
+    Overhang angle from horizontal = 90° − arccos(|nz|).
+
+    Normal orientation: CadQuery's normalAt() is unreliable on conical faces
+    — so we orient every normal to point away from the solid centroid before
+    measuring.  This makes detection work on inverted frustums, tapered
+    cones, and every other shape.
+    """
     max_deg = profile.get("max_overhang_deg")
     if max_deg is None:
-        return []  # No overhang limit for this process
+        return []  # No overhang limit for this process (e.g. SLS)
 
-    max_angle_rad = math.radians(max_deg)
     faces = list(solid.Faces())
+    centroid = solid.Center()
     overhanging = []
 
-    for i, face in enumerate(faces):
+    for face in faces:
         try:
             center = face.Center()
-            normal = face.normalAt(center)
-            # The angle of a face from horizontal:
-            # A flat horizontal face has normal.z = ±1 (angle 0° from horizontal)
-            # A 45° overhang has normal.z ≈ 0.707 downward
-            # The overhang angle = 90 - acos(|normal.z|) for downward faces
-            z_abs = abs(normal.z)
-            if z_abs > 0.99:
-                continue  # Nearly horizontal or vertical — check z sign
+            try:
+                raw_normal = face.normalAt(center)
+            except Exception:
+                # normalAt(point) can fail on conical faces when the center
+                # doesn't project cleanly onto the parametric surface.
+                # Fall back to normalAt() (parametric center).
+                raw_normal = face.normalAt()
+            normal = _orient_normal(center, raw_normal, centroid)
 
-            # Only check faces with a downward component (normal.z < -0.01)
-            # A perfectly vertical face (z≈0) isn't an overhang — it's a wall.
-            # True overhangs have the face normal pointing somewhat downward.
-            if normal.z >= -0.01:
+            nz = normal.z
+            z_abs = abs(nz)
+
+            # Skip near-horizontal faces (floor / ceiling) — not overhangs
+            if z_abs > 0.99:
                 continue
 
-            # Overhang angle: angle of face from horizontal
-            # For downward-facing faces: 90° - acos(|z|) = asin(|z|) from horizontal
-            overhang_angle = round(90.0 - math.degrees(math.acos(z_abs)), 1)
+            # Skip near-vertical faces (walls) — not overhangs
+            if z_abs < 0.02:
+                continue
+
+            # Only overhanging if the outward normal points downward
+            if nz >= 0:
+                continue  # outward normal is upward — supported face
+
+            # Overhang angle from VERTICAL (build direction, +Z):
+            # FDM convention: max_overhang_deg is measured from vertical.
+            # vertical wall → nz = 0 → overhang = 0° (fine)
+            # 45° from vert → nz ≈ −0.707 → overhang = 45° (FDM limit)
+            # horizontal ceiling → nz = −1 → overhang = 90° (worst)
+            # overhang_angle = 90° − acos(|nz|) = asin(|nz|)
+            overhang_angle = round(math.degrees(math.asin(min(z_abs, 1.0))), 1)
 
             if overhang_angle > max_deg:
                 overhanging.append(overhang_angle)
@@ -82,12 +127,16 @@ def _check_overhang(solid: cq.Solid, profile: dict, design) -> list[dict]:
 def _check_bridge_span(solid: cq.Solid, profile: dict, design) -> list[dict]:
     """Detect unsupported horizontal spans exceeding max_bridge_span_mm.
     Approximated by checking for flat horizontal faces whose edges exceed the limit.
-    Only considers planar faces (skips curved surfaces like cylinders)."""
+
+    Uses centroid-oriented normals so the downward-face detection is reliable
+    on all solid types.
+    """
     max_span = profile.get("max_bridge_span_mm")
     if max_span is None:
         return []
 
     faces = list(solid.Faces())
+    centroid = solid.Center()
     long_spans = []
 
     for face in faces:
@@ -96,7 +145,11 @@ def _check_bridge_span(solid: cq.Solid, profile: dict, design) -> list[dict]:
             if geom_type != "PLANE":
                 continue  # Skip curved faces — only flat horizontal spans matter
             center = face.Center()
-            normal = face.normalAt(center)
+            try:
+                raw_normal = face.normalAt(center)
+            except Exception:
+                raw_normal = face.normalAt()
+            normal = _orient_normal(center, raw_normal, centroid)
             # A bridge has a downward-facing horizontal face
             if normal.z > -0.95:
                 continue  # Not downward-facing enough
@@ -198,18 +251,26 @@ def _check_min_feature_size(profile: dict, provenance: list) -> list[dict]:
 # ── Draft angle ──────────────────────────────────────────────────────────────
 
 def _check_draft_angle(solid: cq.Solid, profile: dict, design) -> list[dict]:
-    """For molding/casting: vertical faces must taper at draft_angle_deg."""
+    """For molding/casting: vertical faces must taper at draft_angle_deg.
+
+    Uses centroid-oriented normals for reliable orientation detection.
+    """
     draft_deg = profile.get("draft_angle_deg")
     if draft_deg is None:
         return []
 
     faces = list(solid.Faces())
+    centroid = solid.Center()
     faces_missing_draft = []
 
     for face in faces:
         try:
             center = face.Center()
-            normal = face.normalAt(center)
+            try:
+                raw_normal = face.normalAt(center)
+            except Exception:
+                raw_normal = face.normalAt()
+            normal = _orient_normal(center, raw_normal, centroid)
             # A vertical face has normal perpendicular to Z (horizontally oriented)
             # Draft means the face tilts inward by at least draft_deg from vertical
             z_component = abs(normal.z)

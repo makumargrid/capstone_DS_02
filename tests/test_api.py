@@ -155,7 +155,7 @@ def test_recompile_valid_ir():
 
 def test_recompile_invalid_ir():
     c = _setup()
-    bad = pattern_box_ir(); del bad["features"][0]["params"]["r_base"]
+    bad = pattern_box_ir(); del bad["features"][0]["params"]["radius"]
     r = c.post("/recompile", json={"ir": bad}).json()
     assert r["valid"] is False and r["stage"] == "validate"
 
@@ -181,10 +181,10 @@ def test_log_endpoint():
 def test_webui_served():
     c = _setup()
     assert c.get("/ui/index.html").status_code == 200
-    assert "New design" in c.get("/ui/index.html").text
+    assert "New Design" in c.get("/ui/index.html").text
     assert c.get("/ui/run.html").status_code == 200
     js = c.get("/ui/static/run.js")
-    assert js.status_code == 200 and "WebSocket" in js.text
+    assert js.status_code == 200 and "RID" in js.text
     assert c.get("/ui/static/style.css").status_code == 200
 
 

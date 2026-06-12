@@ -140,6 +140,26 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
         json.dump({"prompt": prompt, "process": process, "min_wall_mm": min_wall,
                    "spec": spec}, f, indent=2)
 
+    # ── GATE 1: Spec Confirmation ────────────────────────────────────────────
+    # Present the frozen Spec for human confirmation. In non-interactive mode,
+    # auto-approve so batch runs and tests are unaffected.
+    if interactive and question_handler:
+        from core.intent_resolver import _format_spec_summary
+        spec_summary = _format_spec_summary(spec, intent.get("pinned_dimensions", []),
+                                            intent.get("is_engineer", False))
+        spec_summary += "\n\n**Confirm this specification?** (yes / edit / no)"
+        response = question_handler(spec_summary)
+        if response and response.lower().startswith(("no", "n", "cancel")):
+            log.warning("[GATE-1] Spec rejected by user.")
+            _save(out, "01_spec_rejected.json", json.dumps({"spec": spec, "response": response}, indent=2))
+            _report(out)
+            return out
+        elif response and not response.lower().startswith(("yes", "y", "ok", "confirm")):
+            # Treat any other response as edit notes
+            log.info(f"[GATE-1] User refinement: {response[:120]}")
+            intent["clarification_notes"] = intent.get("clarification_notes", []) + [response]
+    log.info("[GATE-1] Spec frozen and confirmed.")
+
     # Import agents lazily so the module imports even without ADK/keys present.
     from agents.planner_agent import IRPlanner
     from agents.reviewer_agent import run_review
@@ -225,6 +245,24 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
     except Exception as e:
         log.error(f"[PLAN] Planner failed (model/API unavailable?): {e}"); _report(out); return out
     _save(out, "02_outer1_planner_output.txt", text)
+
+    # ── GATE 2: Plan Preview + Refine ────────────────────────────────────────
+    # In interactive mode, show a plain-language explanation of the IR and
+    # optionally a rendered preview. User can approve or request refinement.
+    # In non-interactive mode, auto-approve.
+    if interactive and question_handler and ir is not None:
+        explanation = explain_plan(ir)
+        preview_msg = (
+            "## Proposed Design\n\n"
+            f"{explanation}\n\n"
+            "**Approve this plan, or describe what to change:**"
+        )
+        response = question_handler(preview_msg)
+        if response and not response.lower().startswith(("yes", "y", "ok", "confirm", "approve", "")):
+            log.info(f"[GATE-2] User refinement: {response[:120]}")
+            text, ir = planner.revise_ir(f"User refinement request: {response}")
+            _save(out, "02_gate2_planner_revision.txt", text)
+    log.info("[GATE-2] Plan confirmed (or auto-approved in non-interactive mode).")
 
     for attempt in range(1, MAX_OUTER + 1):
         log.info(f"\n{'='*70}\nOUTER {attempt}/{MAX_OUTER}\n{'='*70}")

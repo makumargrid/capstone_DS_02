@@ -26,6 +26,8 @@ def test_bootstrap_env_aliases_gemini_to_google():
         os.environ.pop("GOOGLE_API_KEY", None)
         os.environ.pop("GOOGLE_GENAI_USE_VERTEXAI", None)
         os.environ["GEMINI_API_KEY"] = "gemini-key"
+        import core.env as _env
+        _env._BOOTSTRAPPED = False  # Reset so bootstrap_env can re-run
         from core.env import bootstrap_env
 
         bootstrap_env(load_dotenv_file=False)
@@ -34,6 +36,8 @@ def test_bootstrap_env_aliases_gemini_to_google():
         assert os.environ["GOOGLE_GENAI_USE_VERTEXAI"] == "false"
     finally:
         _restore_env(saved)
+        import core.env as _env3
+        _env3._BOOTSTRAPPED = False
 
 
 def test_bootstrap_env_aliases_google_to_gemini():
@@ -41,6 +45,8 @@ def test_bootstrap_env_aliases_google_to_gemini():
     try:
         os.environ.pop("GEMINI_API_KEY", None)
         os.environ["GOOGLE_API_KEY"] = "google-key"
+        import core.env as _env
+        _env._BOOTSTRAPPED = False  # Reset so bootstrap_env can re-run
         from core.env import bootstrap_env
 
         bootstrap_env(load_dotenv_file=False)
@@ -48,6 +54,8 @@ def test_bootstrap_env_aliases_google_to_gemini():
         assert os.environ["GEMINI_API_KEY"] == "google-key"
     finally:
         _restore_env(saved)
+        import core.env as _env2
+        _env2._BOOTSTRAPPED = False  # Reset for subsequent tests
 
 
 def test_provider_model_can_be_overridden_by_role_env():
@@ -96,14 +104,17 @@ def test_missing_primitive_yaml_crashes_import():
 
     shutil.move(yaml_to_hide, hidden)
     try:
-        # Clear the config loader cache and reload the registry module
+        # Clear all caches and modules so the registry reimports fresh
         from core.config_loader import load_config, load_all_primitive_configs
         load_config.cache_clear()
-        # Now try to reload primitives.registry — it should raise
+        load_all_primitive_configs.cache_clear()
+        # Remove all primitives modules from sys.modules
+        for mod_name in list(sys.modules.keys()):
+            if mod_name.startswith("primitives"):
+                del sys.modules[mod_name]
+        # Now try to reimport — it should raise ImportError
         try:
             import primitives.registry as _reg
-            import importlib
-            importlib.reload(_reg)
             assert False, "Should have raised ImportError for missing YAML"
         except ImportError:
             pass  # expected — loud failure on missing YAML
@@ -113,10 +124,12 @@ def test_missing_primitive_yaml_crashes_import():
         from core.config_loader import load_config, load_all_primitive_configs
         load_config.cache_clear()
         load_all_primitive_configs.cache_clear()
+        # Remove and reimport to restore clean state
+        for mod_name in list(sys.modules.keys()):
+            if mod_name.startswith("primitives"):
+                del sys.modules[mod_name]
         try:
-            import primitives.registry as _reg
-            import importlib
-            importlib.reload(_reg)
+            import primitives.registry  # noqa: F811
         except Exception:
             pass  # registry will self-heal on next import naturally
 
@@ -349,3 +362,28 @@ if __name__ == "__main__":
             failed += 1; print(f"FAIL {fn.__name__}"); traceback.print_exc()
     print(f"\n{len(fns) - failed}/{len(fns)} passed")
     sys.exit(1 if failed else 0)
+
+def test_m4_bolt_hole_resolves_to_4_5mm():
+    """M4 bolt clearance hole returns 4.5mm with ISO 273 citation."""
+    from core.intent_resolver import _ground_spec
+    spec = [
+        {"id": "r1", "description": "through hole for M4 bolt", "claim": "bore_diameter_mm",
+         "target": "bore", "expected": None, "tolerance": None, "severity": "required"},
+    ]
+    prompt = "Make a bracket with a hole for an M4 bolt"
+    grounded = _ground_spec(spec, prompt)
+    bore = grounded[0]
+    assert bore["expected"] == 4.5, f"Expected 4.5mm, got {bore['expected']}"
+    assert "ISO 273" in bore.get("source", ""), f"No ISO citation: {bore}"
+
+
+def test_gate2_refine_request_preserved():
+    """In interactive mode, refine request reaches the pipeline."""
+    from core.intent_resolver import resolve_intent
+    # Interactive with an edit response — should be treated as clarification
+    def edit_handler(question):
+        return "increase the bore to 20mm"
+    result = resolve_intent("test part", {}, interactive=True, question_handler=edit_handler)
+    assert result["confirmed"]
+    assert len(result["clarification_notes"]) > 0
+    assert "increase" in result["clarification_notes"][0].lower()

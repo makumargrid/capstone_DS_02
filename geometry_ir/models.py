@@ -37,6 +37,11 @@ class Feature(BaseModel):
     anchor  — optional relational placement {to, from_face, to_face, align, offset}.
               The compiler resolves this against the referenced feature's geometry
               to produce a pose. Has no effect if used alongside an explicit pose.
+              Valid face names for from_face / to_face:
+                bottom_center — centre of the bounding-box bottom face (z_min)
+                top_center    — centre of the bounding-box top face (z_max)
+                center        — volumetric centre of the bounding box
+              Unknown face names raise ValueError (loud, not silent fallback).
     """
     model_config = ConfigDict(extra="forbid")
     id: str = Field(min_length=1)

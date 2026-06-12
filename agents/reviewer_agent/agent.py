@@ -130,7 +130,13 @@ def _decide(l2: dict, vision: dict | None, meshlib: dict | None) -> dict:
                 "discrepancies_found": [], "recommendations_for_planner": None,
                 "confidence": "LOW"}
 
-    failed = [c for c in l2["checks"] if not c["passed"]]
+    # DFM claims are advisory: reported to the reviewer but don't block
+    # approval on their own. Mirror the same filter used in solid_inspector.
+    _DFM_CLAIMS = {
+        "overhang_angle", "bridge_span", "min_hole_diameter_mm",
+        "min_feature_size_mm", "draft_angle",
+    }
+    failed = [c for c in l2["checks"] if not c["passed"] and c["claim"] not in _DFM_CLAIMS]
     if failed:
         failed.sort(key=lambda c: _PRIORITY.index(c["claim"]) if c["claim"] in _PRIORITY else 99)
         blocking = failed[0]
