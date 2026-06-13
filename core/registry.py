@@ -25,14 +25,17 @@ _REGISTRY = os.path.join("outputs", "registry.jsonl")
 
 def request_acceptance(interactive: bool, summary: str) -> tuple[bool, str]:
     """Human acceptance gate. Returns (accepted, accepted_by)."""
-    if interactive and sys.stdin.isatty():
+    import threading
+    is_main_thread = (threading.current_thread() == threading.main_thread())
+    if interactive and sys.stdin.isatty() and is_main_thread:
         print("\n" + "=" * 60)
         print("ACCEPTANCE — does this match your intent?")
         print(summary)
         print("Accept this design? [y/N] ", end="", flush=True)
         ans = input().strip().lower()
         return (ans in ("y", "yes"), "user")
-    return (True, "auto")  # non-interactive: harness-APPROVED stands, flagged auto
+    return (True, "auto")  # non-interactive/API-worker: harness-APPROVED stands, flagged auto
+
 
 
 def record(out_dir: str, prompt: str, spec: list, ir: dict, coverage: dict,
