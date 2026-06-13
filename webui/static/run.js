@@ -108,6 +108,64 @@ async function poll() {
       else if (artifacts.some(a => a.includes('ir.json'))) setProgress('plan');
       else setProgress('intent');
     }
+    // Clarification Q&A
+    const qaCard = document.getElementById('qa-card');
+    const pq = status.pending_question;
+    if (pq) {
+      document.getElementById('qa-question').textContent = pq.question;
+      qaCard.style.display = 'block';
+      qaCard.dataset.questionId = pq.id;
+      
+      const text = pq.question.toLowerCase();
+      const quickActions = document.getElementById('qa-quick-actions');
+      if (text.includes('confirm') || text.includes('yes/no') || text.includes('yes / edit / no')) {
+        quickActions.style.display = 'flex';
+      } else {
+        quickActions.style.display = 'none';
+      }
+
+      if (!window.qaEventHandlersBound) {
+        window.qaEventHandlersBound = true;
+        const submitBtn = document.getElementById('btn-qa-submit');
+        const inputField = document.getElementById('qa-input');
+        
+        async function sendAnswer(ansText) {
+          submitBtn.disabled = true;
+          const currentQid = qaCard.dataset.questionId;
+          try {
+            const res = await fetch(`/designs/${RID}/answer`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ question_id: currentQid, answer: ansText })
+            });
+            if (res.ok) {
+              qaCard.style.display = 'none';
+              inputField.value = '';
+              poll();
+            } else {
+              const err = await res.json();
+              alert('Failed to submit: ' + (err.detail || 'Unknown error'));
+            }
+          } catch (e) {
+            alert('Failed to submit answer: ' + e);
+          } finally {
+            submitBtn.disabled = false;
+          }
+        }
+
+        submitBtn.onclick = () => {
+          const ans = inputField.value.trim();
+          if (!ans) { alert('Please type an answer before submitting.'); return; }
+          sendAnswer(ans);
+        };
+
+        document.getElementById('btn-qa-yes').onclick = () => sendAnswer('yes');
+        document.getElementById('btn-qa-no').onclick = () => sendAnswer('no');
+      }
+    } else {
+      qaCard.style.display = 'none';
+    }
+
 
     // Spec
     if (artifacts.includes('01b_spec.json') && !seenArtifacts.has('spec')) {
