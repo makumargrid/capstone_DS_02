@@ -99,6 +99,168 @@ def _ground_spec(spec: list[dict], prompt: str) -> list[dict]:
     return spec
 
 
+def _generate_adaptive_questions(prompt: str, spec: list[dict], pinned: list[dict],
+                                  is_engineer: bool, profile: dict) -> str:
+    """Generate a batched set of substantive, decision-relevant questions.
+
+    Rules (from skills/intent_resolution/SKILL.md):
+    - Only ask about information that actually changes the design.
+    - Prefer standards-grounded defaults with source citations.
+    - Batch related questions; return empty string if nothing substantive is missing.
+    - Adapt tone: engineers get precise numeric questions; general users get plain-language.
+    """
+    questions: list[str] = []
+    specified_targets = {r.get("target", "") for r in spec}
+    specified_params = {r.get("param", "") for r in spec}
+
+    # Determine what's already covered
+    has_dimensions = any(r.get("expected") is not None and r.get("claim") == "dimension" for r in spec)
+    has_bolt_holes = "holes" in specified_targets or "hole" in specified_targets
+    has_material = any(w in prompt.lower() for w in ("aluminum", "steel", "abs", "pla", "nylon", "petg", "titanium", "stainless"))
+    has_process = any(w in prompt.lower() for w in ("fdm", "sla", "cnc", "milled", "printed", "cast", "machined"))
+    has_load = any(w in prompt.lower() for w in ("kg", "lbs", "load", "weight", "heavy", "light"))
+    has_mounting = any(w in prompt.lower() for w in ("mount", "bolt", "screw", "wall", "stud", "frame", "attach"))
+
+    # Count how many numeric dimensions are explicitly specified
+    num_pinned = len(pinned)
+
+    low_detail = num_pinned < 2 and not has_dimensions and not has_load and not has_mounting
+
+    if is_engineer:
+        # ── Engineer path: precise dimensional/process questions ──
+        if not has_material and not has_process:
+            questions.append(
+                "Material & process: ABS (FDM), aluminum (CNC), or another? "
+                "This determines min wall thickness, tolerances, and DFM rules."
+            )
+        elif not has_material:
+            questions.append(
+                "Which material? (e.g., ABS, aluminum, steel — affects min wall thickness and tolerances)"
+            )
+        elif not has_process:
+            questions.append(
+                "Which manufacturing process? (FDM, SLA, CNC, etc. — affects DFM thresholds)"
+            )
+
+        if has_bolt_holes:
+            # Check if M-size is specified; if not, ask
+            from core.standards import lookup_clearance_hole
+            m_match = None
+            import re as _re
+            for r in spec:
+                desc = (r.get("description", "") + " " + prompt).upper()
+                mm = _re.search(r'M(\d+)', desc)
+                if mm:
+                    m_match = mm.group(0)
+                    break
+            if not m_match:
+                # Propose a default bolt size with clearance hole
+                default_bolt = "M6"
+                hole = lookup_clearance_hole(default_bolt)
+                if hole:
+                    questions.append(
+                        f"What bolt size for the mounting holes? "
+                        f"(Default: {default_bolt} → Ø{hole['value']}mm clearance per {hole['source']}. "
+                        f"Specify a different size if needed.)"
+                    )
+                else:
+                    questions.append(
+                        "What bolt size for the mounting holes? (e.g., M6, M8, M10)"
+                    )
+
+        if not has_load and low_detail:
+            questions.append(
+                "Approximate load this part will carry? "
+                "(e.g., <1 kg decorative, 5–10 kg functional, 50+ kg structural — "
+                "drives wall thickness and ribbing)"
+            )
+
+        if not has_mounting and low_detail:
+            questions.append(
+                "How will this part mount? (e.g., bolted to a wall, clamped to a pipe, "
+                "pressed into a bearing — determines feature placement and hole patterns)"
+            )
+
+    else:
+        # ── General-user path: plain-language, use-case questions ──
+        part_name = ""
+        for r in spec:
+            t = r.get("target", "")
+            if t in ("bracket", "housing", "enclosure", "mount", "flange", "body", "hub", "gear"):
+                part_name = t
+                break
+        if not part_name:
+            # Extract from prompt
+            words = prompt.lower().split()
+            for w in ("bracket", "housing", "enclosure", "mount", "flange", "adapter", "holder", "stand"):
+                if w in words:
+                    part_name = w
+                    break
+        if not part_name:
+            part_name = "part"
+
+        if not has_mounting and not has_bolt_holes:
+            questions.append(
+                f"What will this {part_name} attach to? "
+                f"(e.g., a wall, another part, a pipe — this helps determine how it mounts)"
+            )
+
+        if not has_load and low_detail:
+            questions.append(
+                f"What will this {part_name} support or carry? "
+                f"(e.g., a small shelf, a camera, heavy machinery — this determines how sturdy it needs to be)"
+            )
+
+        if not has_material and not has_process:
+            # For general users, propose ABS/FDM as common default
+            questions.append(
+                f"Material preference? "
+                f"(Default: standard 3D-printed plastic (ABS/PLA) is fine for most uses. "
+                f"Choose metal if it needs to hold significant weight or handle heat.)"
+            )
+
+        # Fill missing dimensions from standards where possible, confirm visually
+        if low_detail and has_bolt_holes:
+            from core.standards import lookup_clearance_hole
+            import re as _re
+            m_match = None
+            for r in spec:
+                desc = (r.get("description", "") + " " + prompt).upper()
+                mm = _re.search(r'M(\d+)', desc)
+                if mm:
+                    m_match = mm.group(0)
+                    break
+            if not m_match:
+                default_bolt = "M6"
+                hole = lookup_clearance_hole(default_bolt)
+                if hole:
+                    questions.append(
+                        f"Based on standard practice, mounting holes will be sized for "
+                        f"{default_bolt} bolts (Ø{hole['value']}mm clearance per {hole['source']}). "
+                        f"Does that work for your use, or do you need a different size?"
+                    )
+
+        # Wall thickness default for low-detail general prompts
+        if low_detail and not any(r.get("claim") == "uniform_thickness_mm" for r in spec):
+            min_wall = profile.get("min_wall_mm", 2.0)
+            questions.append(
+                f"Wall thickness will be at least {min_wall}mm "
+                f"(standard minimum for {profile.get('process_key', 'FDM').upper()}). "
+                f"This will be confirmed visually — no numbers needed from you."
+            )
+
+    if not questions:
+        return ""
+
+    # Batch into a single message
+    if is_engineer:
+        header = "## Design Clarifications\n\nA few specifics to nail down before we freeze the spec:\n\n"
+    else:
+        header = "## A Few Questions to Get Your Design Right\n\n"
+
+    return header + "\n\n".join(f"{i+1}. {q}" for i, q in enumerate(questions))
+
+
 def resolve_intent(prompt: str, profile: dict, interactive: bool = False,
                    question_handler=None) -> dict:
     """Run the Intent Resolution stage.
@@ -120,32 +282,34 @@ def resolve_intent(prompt: str, profile: dict, interactive: bool = False,
     # 4. Detect adaptivity
     is_eng = _is_engineer(prompt)
 
-    # 5. Confirmation gate
+    # 5. Adaptive questioning: ask only what's decision-relevant and still missing
     clarification_notes = []
 
-    reference_image = None
     if interactive and question_handler:
-        # Check for reference image in the session
-        try:
-            from interaction.image_intake import get_reference_image
-            # Session dir may not be known at this level — skip if not available
-        except ImportError:
-            pass
+        adaptive_qs = _generate_adaptive_questions(prompt, spec, pinned, is_eng, profile)
+        if adaptive_qs:
+            response = question_handler(adaptive_qs)
+            if response and response.strip():
+                clarification_notes.append(response)
 
+        # 6. Confirmation gate: show frozen spec, get approval
         summary = _format_spec_summary(spec, pinned, is_eng)
-        if reference_image:
-            summary = "🖼️ Reference image is loaded for shape comparison.\n\n" + summary
         summary += "\n\nDo you confirm this specification? (yes/edit/no)"
         response = question_handler(summary)
 
         if response and response.lower().startswith(("yes", "y", "confirm", "ok")):
             confirmed = True
+        elif response and "no browser answer arrived in time" in response.lower():
+            confirmed = True
+            if response and response.strip():
+                clarification_notes.append(response)
         elif response and response.lower().startswith(("no", "n", "cancel")):
             confirmed = False
         else:
             # Treat any other response as edit notes
             confirmed = True
-            clarification_notes.append(response)
+            if response and response.strip():
+                clarification_notes.append(response)
     else:
         confirmed = True  # Auto-confirm in non-interactive mode
 

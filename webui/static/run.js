@@ -111,24 +111,96 @@ async function poll() {
     // Clarification Q&A
     const qaCard = document.getElementById('qa-card');
     const pq = status.pending_question;
-    if (pq) {
-      document.getElementById('qa-question').textContent = pq.question;
+    if (state === 'waiting_for_user' && pq) {
+      const qText = pq.question || '';
+      const isImagePick = qText.startsWith('<<<IMAGE_PICK>>>');
+
+      if (isImagePick) {
+        // Image pick mode: parse candidate URLs and render thumbnails
+        const bodyText = qText.replace('<<<IMAGE_PICK>>>', '').trim();
+        const urlRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+        let match;
+        const candidates = [];
+        while ((match = urlRegex.exec(bodyText)) !== null) {
+          candidates.push({ title: match[1], url: match[2] });
+        }
+        // Show the instructions text (strip markdown image links for clean text)
+        const instructionText = bodyText.replace(urlRegex, '$1').trim();
+        document.getElementById('qa-question').textContent = instructionText;
+        document.getElementById('qa-text-group').style.display = 'none';
+        document.getElementById('qa-quick-actions').style.display = 'none';
+
+        // Render thumbnail grid
+        let thumbHtml = '<div class="image-pick-grid" style="display:flex;flex-wrap:wrap;gap:12px;margin-top:12px">';
+        candidates.forEach((c, i) => {
+          thumbHtml += `<div class="image-pick-item" style="cursor:pointer;border:2px solid var(--slate-200);border-radius:8px;overflow:hidden;text-align:center;max-width:180px" data-pick="${i + 1}">
+            <img src="${c.url}" alt="${c.title}" style="width:100%;height:120px;object-fit:cover;display:block" onerror="this.parentElement.style.display='none'">
+            <span style="display:block;padding:4px 8px;font-size:12px;color:var(--text-muted)">${i + 1}. ${c.title}</span>
+          </div>`;
+        });
+        thumbHtml += `<div class="image-pick-item image-pick-skip" style="cursor:pointer;border:2px dashed var(--slate-200);border-radius:8px;display:flex;align-items:center;justify-content:center;width:120px;height:120px" data-pick="skip">
+          <span style="color:var(--text-muted);font-size:14px">Skip →</span>
+        </div>`;
+        thumbHtml += '</div>';
+        document.getElementById('qa-question').innerHTML = instructionText + thumbHtml;
+
+        // Wire click handlers for image pick
+        if (!window.qaImagePickBound) {
+          window.qaImagePickBound = true;
+          document.getElementById('qa-card').addEventListener('click', function (e) {
+            const item = e.target.closest('.image-pick-item');
+            if (!item) return;
+            const pickValue = item.dataset.pick;
+            if (!pickValue) return;
+            // Submit the pick via /answer
+            const currentQid = qaCard.dataset.questionId;
+            fetch(`/designs/${RID}/answer`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ question_id: currentQid, answer: pickValue })
+            }).then(r => {
+              if (r.ok) {
+                qaCard.style.display = 'none';
+                poll();
+              }
+            }).catch(() => { });
+          });
+        }
+      } else {
+        // Standard Q&A mode
+        document.getElementById('qa-question').textContent = qText;
+        document.getElementById('qa-text-group').style.display = 'block';
+
+        const text = qText.toLowerCase();
+        const quickActions = document.getElementById('qa-quick-actions');
+        const yesBtn = document.getElementById('btn-qa-yes');
+        const noBtn = document.getElementById('btn-qa-no');
+        
+        if (text.includes('confirm') || text.includes('yes/no') || text.includes('yes / edit / no') || text.includes('approve') || text.includes('proposed design') || text.includes('proceed')) {
+          quickActions.style.display = 'flex';
+          if (text.includes('approve') || text.includes('proposed design')) {
+            yesBtn.textContent = '✅ Approve Plan';
+            noBtn.textContent = '❌ Reject / Halt';
+          } else {
+            yesBtn.textContent = 'Yes / Confirm';
+            noBtn.textContent = 'No / Cancel';
+          }
+        } else {
+          quickActions.style.display = 'none';
+        }
+      }
+
       qaCard.style.display = 'block';
       qaCard.dataset.questionId = pq.id;
-      
-      const text = pq.question.toLowerCase();
-      const quickActions = document.getElementById('qa-quick-actions');
-      if (text.includes('confirm') || text.includes('yes/no') || text.includes('yes / edit / no')) {
-        quickActions.style.display = 'flex';
-      } else {
-        quickActions.style.display = 'none';
+      if (!isImagePick) {
+        document.getElementById('qa-text-group').style.display = 'block';
       }
 
       if (!window.qaEventHandlersBound) {
         window.qaEventHandlersBound = true;
         const submitBtn = document.getElementById('btn-qa-submit');
         const inputField = document.getElementById('qa-input');
-        
+
         async function sendAnswer(ansText) {
           submitBtn.disabled = true;
           const currentQid = qaCard.dataset.questionId;
@@ -233,9 +305,130 @@ async function poll() {
       document.getElementById('log-output').textContent = logData.log || 'No log data';
     } catch (e) { /* log not available */ }
 
+    // Final Acceptance Card
+    const acceptanceCard = document.getElementById('acceptance-card');
+    if ((state === 'approved' || state === 'completed') && acceptanceCard) {
+      if (artifacts.includes('10_acceptance_record.json')) {
+        if (!window.acceptanceRecordLoaded) {
+          window.acceptanceRecordLoaded = true;
+          try {
+            const rec = await fetch(`/designs/${RID}/artifacts/10_acceptance_record.json`).then(r => r.json());
+            const contentEl = document.getElementById('acceptance-content');
+            if (rec.accepted === true) {
+              contentEl.innerHTML = `
+                <div style="background: #e6f4ea; color: #137333; padding: 16px; border-radius: 8px; border: 1px solid #ceead6; margin-top: 8px">
+                  <strong>✅ Accepted:</strong> This design has been approved and signed off.
+                  ${rec.note ? `<p style="margin-top:8px;font-style:italic">Feedback: "${rec.note}"</p>` : ''}
+                </div>
+              `;
+            } else {
+              contentEl.innerHTML = `
+                <div style="background: #fce8e6; color: #c5221f; padding: 16px; border-radius: 8px; border: 1px solid #fad2cf; margin-top: 8px">
+                  <strong>❌ Rejected:</strong> This design was rejected or a revision was requested.
+                  ${rec.note ? `<p style="margin-top:8px;font-style:italic">Feedback: "${rec.note}"</p>` : ''}
+                </div>
+                <div style="margin-top: 12px">
+                  <button class="btn btn-primary btn-sm" id="btn-re-iterate">🔄 Request Revision</button>
+                </div>
+              `;
+              document.getElementById('btn-re-iterate').onclick = () => {
+                const fb = prompt("Enter additional revision instructions if needed:", rec.note || "");
+                if (fb !== null) {
+                  startIteration(fb);
+                }
+              };
+            }
+            acceptanceCard.style.display = 'block';
+          } catch (e) {
+            window.acceptanceRecordLoaded = false;
+          }
+        }
+      } else {
+        const contentEl = document.getElementById('acceptance-content');
+        if (contentEl && !contentEl.querySelector('#btn-accept-design')) {
+          contentEl.innerHTML = `
+            <p style="color:var(--text-muted);margin-bottom:12px;font-size:14px">Please review the 3D model and verification checks. Do you accept this design?</p>
+            <div class="form-group">
+              <label for="accept-note">Revision Feedback / Sign-off Comments (optional):</label>
+              <textarea class="form-control" id="accept-note" placeholder="Add comments, or describe requested changes if rejecting..."></textarea>
+            </div>
+            <div class="action-bar" style="margin-top:12px">
+              <button class="btn btn-success" id="btn-accept-design">Accept & Sign-off</button>
+              <button class="btn btn-danger" id="btn-reject-design">Reject & Request Revision</button>
+            </div>
+          `;
+          acceptanceCard.style.display = 'block';
+          
+          document.getElementById('btn-accept-design').onclick = async () => {
+            const note = document.getElementById('accept-note').value.trim();
+            await submitAcceptance(true, note);
+          };
+          
+          document.getElementById('btn-reject-design').onclick = async () => {
+            const note = document.getElementById('accept-note').value.trim();
+            if (!note) {
+              alert('Please describe the reason for rejection / what needs to be changed.');
+              return;
+            }
+            await submitAcceptance(false, note);
+          };
+        }
+      }
+    } else if (acceptanceCard) {
+      acceptanceCard.style.display = 'none';
+      window.acceptanceRecordLoaded = false;
+    }
+
     lastState = state;
   } catch (e) {
     console.error('Poll error:', e);
+  }
+}
+
+async function submitAcceptance(accepted, note) {
+  try {
+    const res = await fetch(`/designs/${RID}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accepted, note })
+    });
+    if (res.ok) {
+      window.acceptanceRecordLoaded = false;
+      if (!accepted) {
+        if (confirm("Design rejected. Would you like to start a new revision run seeded with this feedback?")) {
+          await startIteration(note);
+        }
+      }
+      poll();
+    } else {
+      const err = await res.json();
+      alert('Failed: ' + (err.detail || 'Unknown error'));
+    }
+  } catch (e) {
+    alert('Error submitting acceptance: ' + e);
+  }
+}
+
+async function startIteration(feedback) {
+  try {
+    const res = await fetch(`/designs/${RID}/iterate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ feedback })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.run_id) {
+        window.location.href = `/ui/run.html?rid=${data.run_id}`;
+      } else {
+        alert('Failed to start iteration.');
+      }
+    } else {
+      const err = await res.json();
+      alert('Failed: ' + (err.detail || 'Unknown error'));
+    }
+  } catch (e) {
+    alert('Error starting iteration: ' + e);
   }
 }
 

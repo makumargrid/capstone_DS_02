@@ -1,0 +1,12 @@
+# Image search configuration for reference shape anchors.
+# Images confirm shape/topology only; they never gate dimensions.
+
+provider: "playwright"   # "playwright" for headless-browser search, or "" to disable
+timeout_s: 15            # Per-search timeout in seconds
+max_results: 5           # Maximum candidate images to return
+
+# Playwright-specific settings (used when provider = "playwright")
+playwright:
+  browser: "chromium"    # chromium | firefox | webkit
+  headless: true
+  search_engine: "duckduckgo"  # Only DuckDuckGo supported currently (no API key needed)

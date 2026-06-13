@@ -140,25 +140,52 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
         json.dump({"prompt": prompt, "process": process, "min_wall_mm": min_wall,
                    "spec": spec}, f, indent=2)
 
-    # ── GATE 1: Spec Confirmation ────────────────────────────────────────────
-    # Present the frozen Spec for human confirmation. In non-interactive mode,
-    # auto-approve so batch runs and tests are unaffected.
-    if interactive and question_handler:
-        from core.intent_resolver import _format_spec_summary
-        spec_summary = _format_spec_summary(spec, intent.get("pinned_dimensions", []),
-                                            intent.get("is_engineer", False))
-        spec_summary += "\n\n**Confirm this specification?** (yes / edit / no)"
-        response = question_handler(spec_summary)
-        if response and response.lower().startswith(("no", "n", "cancel")):
-            log.warning("[GATE-1] Spec rejected by user.")
-            _save(out, "01_spec_rejected.json", json.dumps({"spec": spec, "response": response}, indent=2))
-            _report(out)
-            return out
-        elif response and not response.lower().startswith(("yes", "y", "ok", "confirm")):
-            # Treat any other response as edit notes
-            log.info(f"[GATE-1] User refinement: {response[:120]}")
-            intent["clarification_notes"] = intent.get("clarification_notes", []) + [response]
-    log.info("[GATE-1] Spec frozen and confirmed.")
+    log.info("[GATE-1] Spec frozen and confirmed via resolve_intent().")
+
+    # ── IMAGE SEARCH (Prompt 14): if no reference image uploaded, search for
+    #     candidate shape anchors and let the user pick one before planning.
+    #     Images confirm shape/topology only; they NEVER gate dimensions.
+    from interaction.image_intake import has_reference_image
+    if interactive and question_handler and not has_reference_image(out):
+        from interaction.image_intake import save_reference_image
+        from interaction.image_search import search_reference_images, download_image
+        try:
+            search_query = dp[:200]  # Use the core design prompt as search query
+            candidates = search_reference_images(search_query)
+            if candidates:
+                # Format the candidate list for the UI
+                lines = ["<<<IMAGE_PICK>>>"]
+                lines.append("## Reference Image Selection\n")
+                lines.append(f"Found {len(candidates)} reference image candidates for \"{search_query[:80]}...\":\n")
+                for i, c in enumerate(candidates):
+                    lines.append(f"{i+1}. [{c.get('title', 'Image ' + str(i+1))}]({c.get('thumbnail_url', c.get('url', ''))})")
+                lines.append("\nPick the best shape reference by typing the number (e.g., '1'), or type 'skip' to proceed without an image.")
+                pick_msg = "\n".join(lines)
+                
+                response = question_handler(pick_msg)
+                if response and response.strip().lower() != "skip":
+                    try:
+                        pick_idx = int(response.strip()) - 1
+                        if 0 <= pick_idx < len(candidates):
+                            chosen = candidates[pick_idx]
+                            img_path = os.path.join(out, "_image_pick_temp.png")
+                            if download_image(chosen["url"], img_path):
+                                ref_path = save_reference_image(img_path, out)
+                                if ref_path:
+                                    log.info(f"[IMAGE_SEARCH] Reference image saved: {ref_path}")
+                                    # Clean up temp
+                                    try:
+                                        os.remove(img_path)
+                                    except Exception:
+                                        pass
+                    except (ValueError, IndexError):
+                        log.info(f"[IMAGE_SEARCH] User pick not understood: {response[:40]}")
+            else:
+                log.info("[IMAGE_SEARCH] No candidates found; proceeding without reference image.")
+        except Exception as e:
+            log.warning(f"[IMAGE_SEARCH] Search failed (degrading gracefully): {e}")
+    elif not interactive:
+        log.info("[IMAGE_SEARCH] Non-interactive mode; skipping image search.")
 
     # Import agents lazily so the module imports even without ADK/keys present.
     from agents.planner_agent import IRPlanner
