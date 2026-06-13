@@ -11,7 +11,7 @@ A feature is PRESENT **only** if it VISIBLY PROTRUDES from or is CUT INTO the
 part's outer surface. Apply these rules strictly:
 
 - If the part looks like a SMOOTH, FEATURELESS solid (like a plain cone,
-  cylinder, or box) despite having declared features like blades/fins/ribs,
+  cylinder, or box) despite having declared features like fins/ribs/bosses,
   those features are **NOT present** — they are embedded inside the body.
 - Faint mesh wireframe lines or tessellation artifacts do NOT count as visible
   features. Features must clearly alter the part's SILHOUETTE or surface shape.
@@ -29,7 +29,6 @@ Output ONLY a JSON object (no markdown):
   "features_present": {"<feature_id or name>": true/false, ...},
   "shape_plausible": true/false,
   "observations": ["short visual notes"],
-  "suspected_defects": ["e.g. 'blades appear merged', 'taper inverted'",
-                        "e.g. 'features embedded — part appears smooth'"],
+  "suspected_defects": ["e.g. 'features appear merged', 'features embedded — part appears smooth'"],
   "confidence": "HIGH" | "MEDIUM" | "LOW"
 }

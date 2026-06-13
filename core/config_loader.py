@@ -32,14 +32,16 @@ def load_primitive_config(primitive_type: str) -> dict:
     return load_config(f"primitives/{primitive_type}.yaml")
 
 
-def load_all_primitive_configs() -> list[dict]:
-    """Return all primitive YAML definitions from config/primitives/."""
+@functools.lru_cache(maxsize=4)
+def load_all_primitive_configs() -> tuple[dict, ...]:
+    """Return all primitive YAML definitions from config/primitives/.
+    Cached; call cache_clear() to force re-read."""
     primitives_dir = os.path.join(_CONFIG_DIR, "primitives")
     configs = []
     for fname in sorted(os.listdir(primitives_dir)):
         if fname.endswith((".yaml", ".yml")):
             configs.append(load_config(f"primitives/{fname}"))
-    return configs
+    return tuple(configs)
 
 
 def load_inspection_thresholds() -> dict:

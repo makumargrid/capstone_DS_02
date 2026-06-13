@@ -1,6 +1,6 @@
 # Geometry Agent Harness — AI-Driven CAD Generation & Verification Pipeline
 
-An **IR-centric agentic CAD pipeline** that takes a natural language prompt ("Create a centrifugal impeller with 7 curved blades") and autonomously designs, generates, verifies, and delivers a manufacturable 3D CAD part — with full traceability.
+An **IR-centric agentic CAD pipeline** that takes a natural language prompt and autonomously designs, generates, verifies, and delivers a manufacturable 3D CAD part — with full traceability.
 
 Instead of generating free-form CadQuery code each loop, the **Planner Agent** emits a typed, validated **Geometry IR** (a parametric feature tree in JSON) that is the single source of truth. A deterministic compiler builds the solid from the IR. Multiple verification layers (deterministic geometry checks + multimodal vision + mesh inspection) catch errors before a **Reviewer** routes `APPROVED`, `REDESIGN` (with surgical node+param fix), or `HALT`. Approved designs are handed off as an editable **ForgeCAD bundle** with a 3D viewer, parameter sliders, and live recompilation.
 
@@ -51,7 +51,7 @@ Instead of generating free-form CadQuery code each loop, the **Planner Agent** e
 | `core/timeout.py` | `run_with_timeout()` — operation timeout wrapper (compile, render, API) | library |
 | `core/spec.py` | Immutable intent contract — extracted BEFORE planner; coverage gate | library |
 | `geometry_ir/` | IR contract: feature-tree grammar (Pydantic v2) + L1 validation + JSON Schema | library |
-| `primitives/` | 8 typed primitives (cylinder, cone, box, hole, sphere, tube, blade) + patterns + compiler + export | library |
+| `primitives/` | 8 typed primitives (cylinder, cone, frustum, box, hole, sphere, tube, profile) + patterns + compiler + export | library |
 | `tools/` | All agent tools — planner_tools, meshlib_tools, meshlib_sandbox | registered by agents |
 | `agents/planner_agent` (`IRPlanner`) | Emits Geometry IR; Claude→Gemini failover; domain skill cards | via `pipeline.py` |
 | `agents/vision_agent` | L3 multimodal verifier — "Thinking with Images" (advisory only) | via `pipeline.py` |
@@ -59,8 +59,7 @@ Instead of generating free-form CadQuery code each loop, the **Planner Agent** e
 | `agents/meshlib_agent` | DEMOTED L4: AI mesh checks for `custom`/mesh-only nodes | via `pipeline.py` |
 | `verification/` | L2 `solid_inspector` (ground truth) + L3 `renderer` + assembly inspector | library |
 | `handoff/` | ForgeCAD bundle: `ir.json` + `model.stl/.step` + `manifest.json` + originals | via `pipeline.py` on APPROVED |
-| `rag_kb1.py` | CadQuery API reference (80+ methods, 30 examples, selectors) — injected into planner + meshlib | library |
-| `rag_kb2.py` | OCCT error-solution pattern DB — injected into meshlib on sandbox failures | library |
+| `knowledge/` | CAD API and OCCT error reference modules injected into planner and tools | library |
 | `knowledge_base/` | 6 manufacturing DFM profiles (FDM, SLA, SLS, CNC, Injection Molding, Casting) | library |
 | `evaluation/` | Deterministic edge-case scorecard (11 cases, no LLM needed) | `python -m evaluation.run_eval` |
 | `reporting/` | Per-run self-contained `report.html` with images, check tables, coverage | library |
@@ -130,7 +129,7 @@ docker run -it --env-file .env \
   agentic-cad-pipeline \
   python pipeline.py --interactive "Design a CNC bracket with pocketing"
 
-# Run with default stress-test prompt (centrifugal impeller)
+# Run with default stress-test prompt (mounting bracket)
 docker run --env-file .env \
   -v "$(pwd)/outputs:/app/outputs" \
   agentic-cad-pipeline python pipeline.py
@@ -281,7 +280,7 @@ python -m evaluation.run_eval
 open evaluation/report/index.html   # view the scorecard
 ```
 
-Cases include: interference, floating parts, mate cycles, missing ground, flat-vs-swept blades, wrong counts, too-thick blades, missing params. **No LLM calls** — pure deterministic verification.
+Cases include: interference, floating parts, mate cycles, missing ground, flat-vs-swept fins, wrong counts, too-thick features, missing params. **No LLM calls** — pure deterministic verification.
 
 ---
 
@@ -344,7 +343,7 @@ flowchart TD
 ```
 
 ```
-User Prompt ("centrifugal impeller, 100mm base, 7 swept blades...")
+User Prompt ("mounting bracket with a 100mm base and 4 bolt holes...")
   │
   ├─ _design_prompt() ................... strips iterate Q&A context
   ├─ detect_process() ................... FDM/SLA/CNC + DFM profile (keyword→LLM→default)
@@ -363,8 +362,8 @@ Planner Agent (IRPlanner, Claude→Gemini)
   ▼
 ┌─── Geometry IR (JSON feature tree) ──────────────────────────┐
 │  { "envelope": {...}, "features": [                           │
-│     {"id":"hub", "type":"cone", "params":{r_base:50,...}},   │
-│     {"id":"blades", "type":"circular_pattern", ...},          │
+│     {"id":"base", "type":"box", "params":{length:100,...}},   │
+│     {"id":"holes", "type":"circular_pattern", ...},           │
 │     {"id":"bore", "type":"hole", ...} ]}                      │
 └──────────────────────────────────────────────────────────────┘
   │
@@ -402,7 +401,7 @@ Acceptance Gate
 
 | Feature | What It Does |
 |---|---|
-| **Domain Skill Cards** | Impeller, gear, enclosure, bracket guidance injected ONLY when prompt keywords match — no impeller formulas clutter a bracket prompt |
+| **Domain Skill Cards** | Gear, enclosure, bracket guidance injected ONLY when prompt keywords match — no gear formulas clutter a bracket prompt |
 | **Layman-Friendly Q&A** | Planner asks "Should this be lightweight like a phone case or strong like a wrench?" — not "Specify min_wall_mm" |
 | **OCCT Error Translation** | Cryptic C++ exceptions ("BRepAlgoAPI_Fuse") → "Features don't overlap — offset one by 1mm" |
 | **Doom-Loop Safety Valve** | Same phantom spec requirement failing twice → auto-downgraded to "preferred" (prevents 6-iteration exhaustion) |
@@ -427,7 +426,7 @@ The planner can use these typed building blocks:
 | **Hole** | `hole` | diameter, depth (null = through-all) |
 | **Sphere** | `sphere` | radius, at |
 | **Tube** | `tube` | outer_radius, inner_radius, height, at |
-| **Blade** | `blade` | width, chord, height, twist_deg, lean_deg |
+| **Profile** | `profile` | operation (extrude/revolve/sweep/loft), depth, sketch |
 | **Circular Pattern** | `circular_pattern` | count, axis, nested feature |
 | **Linear Pattern** | `linear_pattern` | count, step, nested feature |
 | **Custom** | `custom` | code (CadQuery escape hatch — quarantined) |
@@ -494,8 +493,9 @@ The planner can use these typed building blocks:
 ├── reporting/               # Per-run self-contained report.html
 ├── knowledge_base/
 │   └── manufacturing_profiles.json  # 6 process DFM profiles
-├── rag_kb1.py               # CadQuery API reference (80+ methods, 30 examples)
-├── rag_kb2.py               # OCCT error-solution pattern DB (30+ patterns)
+├── knowledge/
+│   ├── cadquery_api/        # CadQuery API reference (80+ methods, 30 examples)
+│   └── occt_errors/         # OCCT error-solution pattern DB (30+ patterns)
 ├── Dockerfile               # Recommended runtime container
 ├── explanation.md           # Full architecture + file/function reference
 ├── fix.md                   # Build journey: every problem, root cause, fix

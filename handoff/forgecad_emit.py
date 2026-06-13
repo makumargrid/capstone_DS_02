@@ -61,6 +61,8 @@ MANIFEST_SCHEMA = {
                 "standards_used": {"type": "array", "items": {"type": "string"}},
                 "deterministic": {"type": "boolean"},
                 "meshlib_battery": {"type": "boolean"},
+                "geometrically_valid": {"type": "boolean"},
+                "manufacturable": {"type": "boolean"},
             },
         },
         "requires_review": {"type": "boolean", "description": "True when any feature is mesh_only or custom"},
@@ -69,7 +71,7 @@ MANIFEST_SCHEMA = {
 }
 
 
-def _manifest(design: Design, provenance, files: dict) -> dict:
+def _manifest(design: Design, provenance, files: dict, inspection_result: dict | None = None) -> dict:
     prov_by_id = {p.id: p for p in provenance}
     nodes = []
     has_mesh_only = False
@@ -94,9 +96,15 @@ def _manifest(design: Design, provenance, files: dict) -> dict:
             },
         })
 
-    # Build certificate
+    # Build certificate — reports both geometrically_valid and manufacturable.
+    # The certificate NEVER claims manufacturability when manufacturable=False.
     native_count = sum(1 for n in nodes if n["native_editable"])
     mesh_count = sum(1 for n in nodes if n["provenance"].get("mesh_only"))
+
+    # If an inspection result is provided, use its flags; otherwise default.
+    geom_valid = inspection_result.get("geometrically_valid", True) if inspection_result else True
+    mfg_valid = inspection_result.get("manufacturable", True) if inspection_result else True
+
     cert = {
         "checks": [
             {"check": "native_editable_nodes", "passed": native_count > 0, "count": native_count},
@@ -108,9 +116,19 @@ def _manifest(design: Design, provenance, files: dict) -> dict:
         "standards_used": ["ISO 273", "ISO 286-2", "ISO 4017"],
         "deterministic": True,
         "meshlib_battery": True,
+        "geometrically_valid": geom_valid,
+        "manufacturable": mfg_valid,
     }
 
-    trust = "requires_review" if has_mesh_only else "certified"
+    # Trust label: never claim certified when not manufacturable or not valid.
+    if has_mesh_only:
+        trust = "requires_review"
+    elif not geom_valid:
+        trust = "flagged"
+    elif not mfg_valid:
+        trust = "requires_review"
+    else:
+        trust = "certified"
 
     return {
         "ir_version": IR_VERSION,
@@ -119,16 +137,21 @@ def _manifest(design: Design, provenance, files: dict) -> dict:
         "files": files,
         "nodes": nodes,
         "certificate": cert,
-        "requires_review": has_mesh_only,
+        "requires_review": has_mesh_only or not mfg_valid,
         "trust_label": trust,
+        "geometrically_valid": geom_valid,
+        "manufacturable": mfg_valid,
     }
 
 
-def emit_forgecad_bundle(ir: dict | Design, out_dir: str, basename: str = "model") -> dict:
+def emit_forgecad_bundle(ir: dict | Design, out_dir: str, basename: str = "model",
+                         inspection_result: dict | None = None) -> dict:
     """Compile the IR and write the ForgeCAD handoff bundle.
 
     Returns the manifest dict. Files written: ir.json, <basename>.stl/.step,
-    manifest.json (all under out_dir)."""
+    manifest.json (all under out_dir).
+    inspection_result: optional verdict dict from inspect_solid with
+    geometrically_valid and manufacturable flags."""
     design = Design.model_validate(ir) if isinstance(ir, dict) else ir
     os.makedirs(out_dir, exist_ok=True)
     solid, prov = compile_design(design)
@@ -153,7 +176,7 @@ def emit_forgecad_bundle(ir: dict | Design, out_dir: str, basename: str = "model
         "ir": os.path.basename(ir_path),
         "stl": os.path.basename(stl_path),
         "step": os.path.basename(step_path),
-    })
+    }, inspection_result=inspection_result)
     with open(os.path.join(out_dir, "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=2)
     return manifest

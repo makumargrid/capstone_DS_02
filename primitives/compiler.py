@@ -9,12 +9,12 @@ WHAT: compile_design(design) walks the validated feature tree, builds each
 
 SMART COMPILATION:
   1. Topological sort: all unions are processed before all cuts. This prevents
-     a common failure where a cut (e.g. bore) is undone by a subsequent union
-     (e.g. blades that overlap the bore zone). Works for ANY design.
+     a common failure where a cut (e.g. bore) is undone by a subsequent union.
+     Works for ANY design.
   2. Feature contribution audit: after building the solid, every union feature
      is measured for how much of its volume actually protrudes from the prior
      solid. Features that are >95% embedded get a diagnostic. This catches
-     any embedded feature (blade inside hub, boss inside box, etc.) without
+     any embedded feature (boss inside box, rib inside shell, etc.) without
      knowing what the feature IS.
 
 CALLED BY: verification/solid_inspector.py, verification/renderer.py (via solid),
@@ -130,7 +130,7 @@ def compile_design(design: Design | dict) -> tuple[cq.Solid, list[FeatureProvena
 
     SMART COMPILATION:
       1. Topological sort: unions first, cuts second. This prevents cuts from
-         being undone by subsequent unions (e.g. bore refilled by blades).
+         being undone by subsequent unions.
       2. Feature contribution audit: each union feature is measured for how
          much of its volume protrudes from the prior solid. Embedded features
          get flagged in diagnostics.
@@ -161,25 +161,29 @@ def compile_design(design: Design | dict) -> tuple[cq.Solid, list[FeatureProvena
                 raise ValueError("Cannot fillet without a previous solid")
             radius = feat.params.get("radius", 1.0)
             try:
-                result = result.fillet(radius, result.Edges())
+                result = result.fillet(radius, list(result.Edges()))
             except Exception as e:
                 raise ValueError(f"Fillet on '{feat.id}' failed: {e}") from e
             feat_solid = result
             feat_vol = result.Volume()
             external_volume = feat_vol
             contribution_ratio = 1.0
+            instances = [result]      # prevent stale instances from prior iteration
+            mesh_only = True           # skip contribution audit (not a union)
         elif feat.type == "chamfer" and feat.op == "chamfer":
             if result is None:
                 raise ValueError("Cannot chamfer without a previous solid")
             length = feat.params.get("length", 1.0)
             try:
-                result = result.chamfer(length, length, result.Edges())
+                result = result.chamfer(length, length, list(result.Edges()))
             except Exception as e:
                 raise ValueError(f"Chamfer on '{feat.id}' failed: {e}") from e
             feat_solid = result
             feat_vol = result.Volume()
             external_volume = feat_vol
             contribution_ratio = 1.0
+            instances = [result]      # prevent stale instances from prior iteration
+            mesh_only = True           # skip contribution audit (not a union)
         elif feat.type == "custom":
             instances = _run_custom(feat.params)
             mesh_only = True

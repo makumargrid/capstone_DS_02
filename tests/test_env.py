@@ -351,17 +351,6 @@ def test_config_loader_caches():
     assert first is second  # lru_cache returns same object
 
 
-if __name__ == "__main__":
-    import traceback
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
-    failed = 0
-    for fn in fns:
-        try:
-            fn(); print(f"PASS {fn.__name__}")
-        except Exception:
-            failed += 1; print(f"FAIL {fn.__name__}"); traceback.print_exc()
-    print(f"\n{len(fns) - failed}/{len(fns)} passed")
-    sys.exit(1 if failed else 0)
 
 def test_m4_bolt_hole_resolves_to_4_5mm():
     """M4 bolt clearance hole returns 4.5mm with ISO 273 citation."""
@@ -387,3 +376,16 @@ def test_gate2_refine_request_preserved():
     assert result["confirmed"]
     assert len(result["clarification_notes"]) > 0
     assert "increase" in result["clarification_notes"][0].lower()
+
+
+if __name__ == "__main__":
+    import traceback
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    failed = 0
+    for fn in fns:
+        try:
+            fn(); print(f"PASS {fn.__name__}")
+        except Exception:
+            failed += 1; print(f"FAIL {fn.__name__}"); traceback.print_exc()
+    print(f"\n{len(fns) - failed}/{len(fns)} passed")
+    sys.exit(1 if failed else 0)

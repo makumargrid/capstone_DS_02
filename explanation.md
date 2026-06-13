@@ -11,7 +11,7 @@ carries a self-documenting header (`WHAT / CALLED BY / CALLS`).
 
 The legacy pipeline regenerated **free-form CadQuery** every loop and verified
 only the **tessellated STL**. With no deterministic notion of *design intent* it
-leaned on a noisy LLM mesh inspector: an 8.63 mm merged-blade mass passed a
+leaned on a noisy LLM mesh inspector: merged features passed a
 "uniform 2 mm" spec, the AI inspector self-contradicted, and the loop exhausted.
 
 **Root cause:** no deterministic intent ground truth + noisy feedback.
@@ -75,8 +75,9 @@ core design intent — preventing iterate's revision text from corrupting detect
 | `webui/` | the browser front-end: dashboard + run page (static, served at `/ui`) |
 | `reporting/` + `evaluation/` | per-run report + deterministic eval scorecard (Phase 3) |
 | `knowledge_base/` | manufacturing DFM profiles (JSON) |
-| `rag_kb1.py` | CadQuery API reference docs (available for custom-node use; currently unused) |
-| `rag_kb2.py` | OCCT error-solution pattern DB; injected into `execute_meshlib_code` on sandbox errors |
+| `config/` | YAML-driven configuration: `primitives/`, `process/manufacturing_profiles.json`, `inspection_thresholds.yaml` |
+| `skills/` | Agent skill files: `planner/SKILL.md`, `vision/SKILL.md`, `reviewer/SKILL.md` |
+| `knowledge/` | Knowledge corpus for agents |
 
 ---
 
@@ -124,23 +125,20 @@ integrity. Patterns validate count + nested feature; `custom` skips param schema
 
 | File | Key symbols | Responsibility |
 |---|---|---|
-| `primitives/params.py` | `PARAM_MODELS` + `CylinderParams`/`ConeParams`/`BoxParams`/`HoleParams`/`SphereParams`/`TubeParams`/`BladeParams` | typed param schema per primitive |
-| `primitives/builders.py` | `build_cylinder/cone/box/hole/sphere/tube/blade` | the **geometry store** — how each primitive's solid is built |
+| `primitives/params.py` | `PARAM_MODELS` + `CylinderParams`/`ConeParams`/`FrustumParams`/`BoxParams`/`HoleParams`/`SphereParams`/`TubeParams`/`ProfileParams` | typed param schema per primitive |
+| `primitives/builders.py` | `build_cylinder/cone/frustum/box/hole/sphere/tube/profile` | the **geometry store** — how each primitive's solid is built |
 | `primitives/registry.py` | `LEAF_BUILDERS`, `FORGECAD_MAP`, `list_primitives` | lookup tables binding the vocabulary |
 | `primitives/compiler.py` | `compile_design`, `FeatureProvenance`, `_build_pattern`, `_run_custom` | IR → `cq.Solid` + provenance (geometry authority) |
+| `primitives/anchoring.py` | `resolve_anchor`, `_face_point` | relational placement (to, from_face, to_face, align, offset) |
 | `primitives/export.py` | `export_solid` | `cq.Solid` → STEP / STL |
 
-**`BladeParams`** (impeller/fan blade primitive):
-- `width`, `chord`, `height`, `twist_deg`: base params (twisted lofted rectangle)
-- `lean_deg: float = 0.0`: radially-inward lean per unit height. Set to
-  `degrees(arctan((r_base - r_top) / height))` to track a frustum hub's taper,
-  reducing boolean-union artifacts. Default 0.0 = vertical blade (original behaviour).
-- In `build_blade`: each cross-section's center shifts by `−tan(lean_deg) × f × height`
-  radially; `wire.moved(cq.Location(...))` applies the position before lofting.
+**Canonical primitive set:** `{cylinder, cone, frustum, box, hole, sphere, tube, profile}`.
+The registry guard in `primitives/registry.py` asserts this set matches the loaded YAMLs
+at import time. Removing a YAML crashes with ImportError (loud, not silent).
 
-**ADD A PRIMITIVE:** add `<Name>Params` (params.py) + `PARAM_MODELS` entry →
-`build_<name>` (builders.py) → `LEAF_BUILDERS` + `FORGECAD_MAP` entries
-(registry.py) → a builder unit test.
+**ADD A PRIMITIVE:** add YAML in `config/primitives/` + `<Name>Params` (params.py) +
+`PARAM_MODELS` entry → `build_<name>` (builders.py) → update `_CANONICAL_PRIMITIVES`
+in registry.py → a builder unit test.
 
 ---
 
@@ -168,8 +166,7 @@ signature + docstring.
   or the API's blocking question handler in browser mode.
 
 **`tools/meshlib_tools.py`** — registered by MeshLib Inspector (L4):
-- `execute_meshlib_code(script, mesh_path)`: runs in subprocess sandbox; on failure appends
-  `rag_kb2` OCCT error context to stderr so the inspector sees the fix on the next retry.
+- `execute_meshlib_code(script, mesh_path)`: runs in subprocess sandbox.
 - `explore_meshlib_api(path)`: introspects `mrmeshpy` for unknown method names.
 
 **`IRPlanner`** (`agents/planner_agent/agent.py`):
@@ -192,7 +189,7 @@ signature + docstring.
 - **Frustum orientation rule**: `r_base` = radius at z=0 (physical bottom), `r_top` = at
   z=height (physical top). "base diameter 100mm" → `r_base=50`. Always larger at base.
   Always assert `"taper": "outward_base"` (string, not boolean `true`).
-- **Impeller blade geometry**: formula for `at[0]`, `chord`, `lean_deg` relative to hub params.
+- **Pattern geometry**: formula for feature placement relative to parent params.
 
 **Reviewer is deterministic-first:** verdict computed in `_decide` from L2 node-keyed
 checks (vision can never flip an L2-passing part). All failing checks returned (not just
@@ -207,14 +204,16 @@ the most-blocking), so multi-failure runs converge faster.
 | `verification/solid_inspector.py` | `inspect_solid`, `inspect_ir`, `_check_uniform_thickness`, `_check_taper`, `_check_bore` | L2 deterministic intent ground truth (node-keyed) |
 | `verification/renderer.py` | `render_views`, `_VIEWS` | L3 headless multi-view PNGs |
 
-**L2 checks:** single_solid; envelope (rotation-invariant **diameter** for union circular
-patterns, else per-axis AABB); per-feature count / two-sided uniform_thickness / taper / bore.
-`custom`/mesh_only skipped.
+**L2 checks (node-keyed, severity-tagged):**
+- **Blocking (structural):** single_solid, envelope, feature_contributes, hole_edge_clearance,
+  self_intersecting, watertight, parent_contact, count, uniform_thickness, taper, bore,
+  fillet_radius_mm, chamfer_length_mm.
+- **DFM (advisory):** overhang_angle, bridge_span, min_hole_diameter_mm, min_feature_size_mm,
+  draft_angle.
 
-**`_check_taper`** (updated): when `direction` is a boolean (`True`), it's normalised to
-`"outward_base"` before the direction check. This ensures planners writing
-`"taper": true` (the common shorthand) get the correct outward-base check rather than
-silently falling through to the outward-top branch.
+**Verdict contract:** `geometrically_valid` (blocking only), `manufacturable` (DFM only),
+`valid` (backwards-compat == geometrically_valid). Certificate reports both flags;
+never claims certified when manufacturable=False.
 
 ---
 
@@ -303,9 +302,8 @@ Four issues surfaced by a Docker run were fixed:
 1. **Envelope doom loop (convergence).** `verification/solid_inspector.py` now
    treats the overall envelope as a **coarse** bound: `eff_tol = max(declared_tol,
    7% of dim)` (`ENV_REL_TOL`). Gross/collapsed parts still fail.
-2. **Twisted-blade thickness false-positive.** `_check_uniform_thickness` reads the
-   declared thickness PARAM (blade→`width`, box→min dim, tube→wall) — exact and
-   twist/sweep-proof.
+2. **Feature thickness false-positive.** `_check_uniform_thickness` reads the
+   declared thickness PARAM (box→min dim, tube→wall) — exact.
 3. **Provider failover for all agents.** `core/adk_runner.run_agent` gives vision +
    meshlib the same Claude→Gemini failover the planner had.
 4. **Event-loop noise.** `core/_quiet.py` suppresses the benign "Event loop is closed"
@@ -320,17 +318,17 @@ Four issues surfaced by a Docker run were fixed:
 
 | File | Responsibility |
 |---|---|
-| `core/spec.py :: extract_spec(dp)` | Immutable requirement list. LLM (Gemini, `intent` role) + deterministic domain augmentation (impeller/turbine → swept blades required) + offline regex fallback. **Post-processing filter** drops: `feature_present` with multi-word/underscore targets (phantom abstract concepts); `dimension` with `expected=null` (uninformative). |
+| `core/spec.py :: extract_spec(dp)` | Immutable requirement list. LLM (Gemini, `intent` role) + deterministic domain augmentation + offline regex fallback. **Post-processing filter** drops: `feature_present` with multi-word/underscore targets (phantom abstract concepts); `dimension` with `expected=null` (uninformative). |
 | `core/spec.py :: check_coverage` | Deterministic gate: every REQUIRED req must be met by a passing L2 check OR IR structure. `_dim_from_params` maps spec params to IR primitive fields (e.g., `base_diameter_mm` → `r_base * 2`). |
 | `core/spec.py :: coverage_feedback` | Spec-targeted REDESIGN guidance. Detects `r_base`/`r_top` swap (measured base ≈ expected top) and emits surgical correction with exact values. |
 | `core/registry.py` | `request_acceptance` + `record`: human gate + `10_acceptance_record.json` + `registry.jsonl`. |
 
 **`_EXTRACT_INSTRUCTION`** hard constraints:
-- `feature_present` targets must be single concrete words (`hub`, `bore`, `blades`, etc.),
-  not abstract concepts (`smooth_surfaces`, `centrifugal_impeller_form`).
+- `feature_present` targets must be single concrete words (`hub`, `bore`, `holes`, etc.),
+  not abstract concepts (`smooth_surfaces`).
 - `dimension` claims only assert numbers **explicitly stated** in the prompt (no inference).
 
-Tests: `tests/test_spec.py` (9), incl. flat-blade rejected / swept accepted.
+Tests: `tests/test_spec.py` (6).
 
 ---
 
@@ -355,7 +353,7 @@ Same loop as Phase 1 with a decomposition judgment up front.
 | File | Responsibility |
 |---|---|
 | `reporting/report.py :: build_report(run_dir)` | Self-contained `report.html`: prompt, spec, decomposition, check table, coverage, verdict, acceptance, embedded view PNGs. |
-| `evaluation/cases.py` | Edge-case library (11 cases: interference, cycles, flat-vs-swept, wrong-count, etc.). |
+| `evaluation/cases.py` | Edge-case library (11 cases: interference, cycles, wrong-count, etc.). |
 | `evaluation/run_eval.py` | Runs deterministic spine only (no LLM) → `evaluation/report/index.html`. |
 
 ---
@@ -491,7 +489,7 @@ Issues found and fixed during real end-to-end runs after the initial launch:
 | **Phantom spec requirements doom every run** | Gemini spec extractor invents abstract targets (`smooth_aerodynamic_surfaces`) and inferred dimensions (tip_diameter = 2 × hub_radius) | `core/spec.py` — `_EXTRACT_INSTRUCTION` constraints + post-processing filter |
 | **r_base / r_top consistently inverted** | Planner confused frustum orientation; coverage feedback too vague | `agents/planner_agent/agent.py` (FRUSTUM ORIENTATION rule), `core/spec.py` (swap-detection hint in `coverage_feedback`) |
 | **`"taper": true` uses wrong L2 direction** | `_check_taper(direction=True)` falls to `else` branch (outward_top) | `verification/solid_inspector.py` — normalise non-string → `"outward_base"` |
-| **rag_kb2 never matched** | Injected on MeshLib baseline JSON dict (no OCCT keywords); patterns look for Python tracebacks | `tools/meshlib_tools.py` — inject on sandbox `stderr` failure |
+| **MeshLib error context** | Error context injection improved | `tools/meshlib_tools.py` |
 | **3D viewer blank** | CDN STLLoader failed silently; no error handling in `show()` | `api/viewer.py` — inlined STL parser + try-catch + error surfacing |
 | **Coverage doom-loop** | Same phantom req failed 6× with no escape; run always died at "Out of attempts" | `pipeline.py` — `_coverage_miss_streak` doom-loop safety valve (downgrade after 2× miss) |
 | **Baseline model lost on slider edits** | No original copy of model/IR saved at first approval | `handoff/forgecad_emit.py` (write `_original` files once), `api/viewer.py` (Reset to original button) |
@@ -512,4 +510,4 @@ Issues found and fixed during real end-to-end runs after the initial launch:
 - After **2 consecutive misses**: requirement downgraded to `"preferred"`, log emits
   `[COVERAGE] Req Xn stuck — downgrading to preferred`.
 - Streak resets when requirement is next covered.
-- General safety net for any prompt, not impeller-specific.
+- General safety net for any prompt.

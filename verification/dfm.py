@@ -17,7 +17,8 @@ from geometry_ir.models import Design
 
 def _result(node, claim, passed, measured, expected, detail=""):
     return {"node": node, "claim": claim, "passed": bool(passed),
-            "measured": measured, "expected": expected, "detail": detail}
+            "measured": measured, "expected": expected, "detail": detail,
+            "severity": "dfm"}
 
 
 # ── Centroid-oriented normal helper ──────────────────────────────────────────
@@ -137,6 +138,8 @@ def _check_bridge_span(solid: cq.Solid, profile: dict, design) -> list[dict]:
 
     faces = list(solid.Faces())
     centroid = solid.Center()
+    bb = solid.BoundingBox()
+    zmin_global = bb.zmin
     long_spans = []
 
     for face in faces:
@@ -153,6 +156,13 @@ def _check_bridge_span(solid: cq.Solid, profile: dict, design) -> list[dict]:
             # A bridge has a downward-facing horizontal face
             if normal.z > -0.95:
                 continue  # Not downward-facing enough
+
+            # Build-plate exclusion: faces at or near global minimum Z are
+            # supported by the build plate, not unsupported bridges.
+            # (TRUE: a flat-bottom cylinder rests on the plate.)
+            face_bb = face.BoundingBox()
+            if abs(face_bb.zmin - zmin_global) < 0.5:
+                continue
 
             try:
                 face_edges = list(face.Edges())

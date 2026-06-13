@@ -45,7 +45,7 @@ def _pin_dimensions(prompt: str) -> list[dict]:
         (r'(\d+(?:\.\d+)?)\s*mm\s*height', 'height_mm', 'hub'),
         (r'(\d+(?:\.\d+)?)\s*mm\s*thick', 'uniform_thickness_mm', 'body'),
         (r'(\d+(?:\.\d+)?)\s*mm\s*(?:through)?\s*bore', 'bore_diameter_mm', 'bore'),
-        (r'(\d+)\s*(?:blades?|teeth|fins?|holes?|bolts?|slots?)', 'count', 'features'),
+        (r'(\d+)\s*(?:teeth|fins?|holes?|bolts?|slots?)', 'count', 'features'),
     ]
     for pat, param, target in patterns:
         for m in re.finditer(pat, prompt.lower()):

@@ -68,9 +68,11 @@ def test_inverted_taper_caught():
 
 
 def test_envelope_violation_caught():
+    """Envelope is an upper bound — exceeding it must fail.
+    Extend the fin pattern reach beyond the declared envelope."""
     ir = copy.deepcopy(pattern_box_ir())
-    # shrink feature radial reach → circumscribed diameter drops below declared 130
-    ir["features"][1]["params"]["feature"]["params"]["at"] = [30.0, 0.0, 0.0]
+    # Increase feature radial reach so the part exceeds the declared envelope
+    ir["features"][1]["params"]["feature"]["params"]["at"] = [90.0, 0.0, 0.0]
     r = inspect_ir(ir)
     assert any(c["node"] == "envelope" and not c["passed"] for c in r["checks"])
 
@@ -224,17 +226,6 @@ def test_pattern_box_passes_hole_and_feature_dfm():
     assert len(feat_checks) > 0, "min_feature_size not checked"
 
 
-if __name__ == "__main__":
-    import traceback
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
-    failed = 0
-    for fn in fns:
-        try:
-            fn(); print(f"PASS {fn.__name__}")
-        except Exception:
-            failed += 1; print(f"FAIL {fn.__name__}"); traceback.print_exc()
-    print(f"\n{len(fns) - failed}/{len(fns)} passed")
-    sys.exit(1 if failed else 0)
 
 # ── FIX 1: Inverted frustum overhang detection ───────────────────────────
 def test_inverted_frustum_fails_overhang_fdm():
@@ -328,3 +319,16 @@ def test_chamfer_length_check_runs():
     result = _check_chamfer_length("c", solid, 2.0)
     assert result["claim"] == "chamfer_length_mm"
     assert result["measured"] is not None
+
+
+if __name__ == "__main__":
+    import traceback
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    failed = 0
+    for fn in fns:
+        try:
+            fn(); print(f"PASS {fn.__name__}")
+        except Exception:
+            failed += 1; print(f"FAIL {fn.__name__}"); traceback.print_exc()
+    print(f"\n{len(fns) - failed}/{len(fns)} passed")
+    sys.exit(1 if failed else 0)

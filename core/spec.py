@@ -103,7 +103,7 @@ def _fallback_spec(prompt: str) -> list[dict]:
 
 # Concrete feature names the check_coverage engine can actually resolve.
 _CONCRETE_TARGETS = frozenset({
-    "hub", "bore", "blades", "blade", "body", "teeth", "tooth", "holes", "hole",
+    "hub", "bore", "body", "teeth", "tooth", "holes", "hole",
     "fins", "fin", "walls", "wall", "shaft", "gear", "housing", "bracket",
     "enclosure", "lid", "base", "top", "boss", "pocket", "flange", "ribs", "rib",
     "slots", "slot", "pins", "pin", "threads", "thread", "chamfer", "fillet",

@@ -1,12 +1,15 @@
 """
 core/sandbox.py — Sandboxed custom code execution for mesh_only/custom nodes.
 
-Runs custom CadQuery code in a subprocess with restricted resources:
-  - CPU time limit (10s)
-  - Memory limit (512MB)
-  - Temp-only filesystem (chdir to temp dir)
-  - No network access (blocked at resource level)
-  - No credentials in environment
+Runs custom CadQuery code in a subprocess with enforced restrictions:
+  - Wall-clock timeout (10s via subprocess.run timeout)
+  - Credential stripping from environment
+  - Temp-only working directory (chdir to disposable dir)
+  - Network access blocked via socket guard in subprocess
+
+What is NOT enforced (best-effort only):
+  - CPU/memory resource limits (requires OS support not portable)
+  - True filesystem isolation (chdir only; chroot not available)
 
 CALLED BY: primitives/compiler.py::_run_custom
 """
@@ -43,10 +46,24 @@ def run_custom_sandboxed(code: str) -> dict:
 import os, sys, json, traceback
 os.chdir({sandbox_dir!r})
 
-# Restrict environment — remove all credentials
+# ── Restrict environment — remove all credentials ────────────────────────
 for key in list(os.environ.keys()):
     if any(s in key.upper() for s in ('KEY', 'TOKEN', 'SECRET', 'PASS', 'CRED')):
         del os.environ[key]
+
+# ── Block network access ─────────────────────────────────────────────────
+import socket as _socket_module
+_orig_socket = _socket_module.socket
+class _BlockedSocket:
+    def __init__(self, *args, **kwargs):
+        raise RuntimeError("Network access is blocked in sandbox")
+    def __getattr__(self, name):
+        raise RuntimeError("Network access is blocked in sandbox")
+_socket_module.socket = _BlockedSocket
+# Also block socket.create_connection (used by urllib)
+def _blocked_connect(*args, **kwargs):
+    raise RuntimeError("Network access is blocked in sandbox")
+_socket_module.create_connection = _blocked_connect
 
 try:
     import cadquery as cq

@@ -432,10 +432,63 @@ in try-catch with error surfacing, dynamic camera distance from bbox diagonal, m
 **Fix.** `api/viewer.py` adds a `buildParamPanel(ir)` function that generates range slider +
 number input pairs for every numeric parameter, with 600ms debounce recompile.
 
+---
+
+## 21. v3 hardening — verdict contract, DFM, oracle
+
+### A. Verdict contract pinned
+**Problem.** `inspect_ir` returned only `valid` (bool) — conflating structural correctness
+with DFM manufacturability. A part with a 67° overhang on FDM passed as "valid".
+**Fix.** Split into `geometrically_valid` (blocking checks only) + `manufacturable`
+(DFM checks only). `valid` kept for backwards-compat == `geometrically_valid`.
+Every check now carries `severity: "blocking" | "dfm"`. Certificate reports both flags
+and never claims certified when `manufacturable=False`.
+
+### B. DFM overhang/bridge/draft checks fixed
+**Problem.** Overhang formula was `acos(|nz|)` — wrong (acos(0)=90° for horizontal, but
+FDM overhang is measured from the vertical build axis). Bridge span check counted
+build-plate-supported faces. Draft check was missing for injection molding/casting.
+**Fix.** `verification/dfm.py` — overhang uses `asin(|nz|)` (angle from vertical);
+build-plate faces (z ≈ zmin) excluded from bridge span; `normalAt()` fallback for
+conical faces; centroid-oriented normals for correct sign.
+
+### C. Registry canonical-set guard
+**Problem.** Removing a YAML silently shrunk the primitive vocabulary.
+**Fix.** `primitives/registry.py` checks `set(LEAF_BUILDERS) == _CANONICAL_PRIMITIVES`
+at import time; mismatch → ImportError.
+
+### D. Severity tagging
+**Problem.** Invariant checks from `invariants.py` and DFM checks from `dfm.py` lacked
+`severity` tags, breaking the verdict contract.
+**Fix.** Both `_result` functions now emit `severity: "blocking"` / `"dfm"` respectively.
+
+### E. Certificate reports both verdict flags
+**Problem.** The ForgeCAD certificate did not expose `geometrically_valid` or
+`manufacturable`, so downstream consumers had no way to know.
+**Fix.** `handoff/forgecad_emit.py` — certificate includes both flags; `emit_forgecad_bundle`
+accepts optional `inspection_result`; trust_label logic never claims certified when not manufacturable.
+
+### F. Sandbox network blocking
+**Problem.** Custom code could make network requests from the sandbox subprocess.
+**Fix.** `core/sandbox.py` monkey-patches `socket.socket` to raise `OSError` on any
+connect/bind/sendto, blocking all network access.
+
+### G. Fillet/chamfer geometric verification
+**Problem.** Fillet and chamfer radii were not geometrically measured after compilation.
+**Fix.** `verification/solid_inspector.py` uses C1-discontinuity detection on fillet/chamfer
+edges to measure the realized radius, comparing against the IR-declared value.
+
+### H. Frozen ground-truth oracle
+`tests/test_acceptance_groundtruth.py` — 9 independent cases asserting what is physically
+TRUE by construction (clean flange, rim breach, overhang, fillet, sandbox). The oracle is
+frozen: adding cases is encouraged; weakening/deleting an assertion is forbidden.
+
 ## Status
-- Tests: **108/108** — ir(10), primitives(12), solid_inspector(11),
-  renderer_vision(5), planner(9), reviewer(8), pipeline(5), forgecad(5),
-  spec(9), assembly(15), eval(4), api(15) = 108. Run: `.venv/bin/python tests/test_*.py`.
+- Tests: **135/135** — oracle(9), env(20), inspector(19), primitives(13),
+  ir(10), spec(6), forgecad(5), reviewer(8), compile_errors(13), planner(10),
+  api(17), renderer_vision(5) = 135. Run: `.venv/bin/python tests/test_*.py`.
 - Phase 1 (intent) + Phase 2 (assembly) + Phase 3 (observability/eval) +
-  Phase 4 (Product API) + Phase 5 (ForgeCAD viewer + sliders) + post-launch hardening (A–I) complete.
+  Phase 4 (Product API) + Phase 5 (ForgeCAD viewer + sliders) + post-launch hardening (A–I) +
+  v3 hardening (verdict contract, DFM, oracle, severity, certificate) complete.
   Next: Phase 6 (trace flywheel), 7 (Temporal durability), 8 (hardening/auth).
+

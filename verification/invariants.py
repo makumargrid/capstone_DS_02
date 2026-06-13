@@ -29,7 +29,8 @@ def _th():
 
 def _result(node, claim, passed, measured, expected, detail=""):
     return {"node": node, "claim": claim, "passed": bool(passed),
-            "measured": measured, "expected": expected, "detail": detail}
+            "measured": measured, "expected": expected, "detail": detail,
+            "severity": "blocking"}
 
 
 # ── Hole edge clearance ──────────────────────────────────────────────────────

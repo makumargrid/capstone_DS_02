@@ -1,81 +1,92 @@
-# Geometry Agent Harness — v1 CAD Pipeline
+# Geometry Agent Harness — v3 IR-Centric CAD Pipeline
 
 ## What This Is
-Multi-agent pipeline: NL prompt → semantic planning → CadQuery geometry → MeshLib validation → adversarial review. Three AI agents (Planner, Inspector, Reviewer) plus deterministic geometry checks. Target: >80% valid first-pass geometry with full audit trail.
+IR-centric agentic CAD pipeline: NL prompt → intent resolution → parametric Geometry IR → deterministic CadQuery compilation → multi-layer verification (L2 deterministic, L3 vision advisory, L4 MeshLib) → adversarial review → ForgeCAD handoff bundle with certificate.
 
-Problem statement: [AI_Harness_ForgeCAD_Magazine.html](./AI_Harness_ForgeCAD_Magazine.html) — covers the full architecture decision memo including Temporal, RLM, GRT, ForgeCAD layers, and the Geometry Agent Runtime vision.
+Three AI agents (Planner, Vision Verifier, Reviewer) are constrained by deterministic geometry checks that form the ground truth. Vision is advisory only — it can never override a deterministic result.
 
 ## Stack
 | Component | Role |
 |-----------|------|
 | Google ADK | Agent orchestration framework |
-| Claude Sonnet 4.6 / Gemini 2.5 Pro | LLM (Claude primary if ANTHROPIC_API_KEY set) |
-| CadQuery | Canonical solid generation (Python CAD kernel) |
-| MeshLib | Deterministic mesh inspection + repair (C++ bindings) |
-| knowledge_base/manufacturing_profiles.json | DFM constraints for 6 processes |
+| Claude Sonnet 4 / Gemini 2.5 Pro | Multi-model (capability-routed per role via `core/providers.py`) |
+| CadQuery | Deterministic solid generation from IR (Python CAD kernel) |
+| MeshLib | Mesh inspection + repair (C++ bindings) |
+| config/process/manufacturing_profiles.json | DFM constraints for 6 processes |
+| config/primitives/*.yaml | One YAML per primitive type (8 leaf primitives) |
+| skills/*.md | Agent skill files (planner, vision, reviewer) |
 
 ## Pipeline Phases (`pipeline.py:run_pipeline`)
 | # | Phase | Decision Point |
 |---|-------|---------------|
-| 1 | Plan + generate code | Planner agent with process-aware DFM injection |
-| 2 | Execute CadQuery | Inner retry loop for syntax/runtime errors |
-| 3 | Export STL + STEP | Hard fail if export fails |
-| 4 | Static checks | Deterministic: watertight, dims, wall thickness, normals |
-| 4b | DFM feedback | Skip AI agents if static already specifies the fix |
-| 5 | AI mesh inspection | Inspector agent — findings ONLY, no verdict |
-| 6 | Adversarial review | Reviewer cross-references static truth vs AI findings |
+| 0 | Intent Resolution | Extract spec from prompt, ground with standards, confirm |
+| 1 | IR Planning | Planner agent emits typed Geometry IR (JSON feature tree) |
+| 1b | L1 Validation | Schema + constraint validation of the IR |
+| 2 | Compilation | Deterministic CadQuery compilation with provenance audit |
+| 3 | Export | STL + STEP export |
+| 4 | L2 Inspection | Deterministic: structural checks + DFM checks |
+| 5 | L3 Vision | Advisory multimodal verification (rendered views) |
+| 5b | L4 MeshLib | Mesh-level inspection for custom/mesh_only nodes |
+| 6 | Reviewer | Synthesizes L2 ground truth + L3 advisory → PASS/REDESIGN/HALT |
+| 7 | Handoff | ForgeCAD bundle with certificate, trust label, viewer |
 
-Outer loop (max 5): redesign iterations. Inner loop (max 4): syntax/execution retry.
+## Verdict Contract (critical — do not change without updating oracle)
+- `geometrically_valid` (bool): structural/intent checks only (blocking severity)
+- `manufacturable` (bool): DFM checks only for the active process (dfm severity)
+- `valid` (bool): backwards-compat == `geometrically_valid`
+- Every check tagged `severity: "blocking" | "dfm"`
+- Certificate reports BOTH flags; never claims certified when `manufacturable=False`
 
 ## Critical Invariants — Never Break These
-1. **exec() scope** — `cad_executor.py` uses single-dict `exec(scope, scope)`. Two-dict form breaks module-level constants with NameError. This was root fix #1.
-2. **Information asymmetry** — Reviewer agent NEVER receives the generated CadQuery code. It only sees design brief + static ground truth + AI inspector findings. Breaking this destroys the anti-hallucination design.
-3. **Wall thickness metric** — DFM check uses **p5** (5th percentile), NOT structural_min. Using structural_min caused 5.5× over-rejection. `DFM_TOLERANCE = 0.05mm` is intentional artifact filtering (not a typo).
-4. **Import order** — `src/model_config.py` must be imported before any ADK agent is instantiated. It patches the ADK registry to use native Anthropic API instead of Vertex AI.
-5. **Subprocess isolation** — MeshLib agent runs AI-generated code in a subprocess. This is mandatory — bad MeshLib calls SEGFAULT. Do not move this into the main process.
+1. **Deterministic-first** — L2 checks run without any LLM. The reviewer's verdict is computed from L2 results. Vision (L3) is advisory only and can NEVER override a passing L2 check.
+2. **Information asymmetry** — Reviewer agent NEVER receives generated code. It only sees spec + L2 ground truth + L3 advisory findings.
+3. **Registry guard** — `set(LEAF_BUILDERS) == {cylinder, cone, frustum, box, hole, sphere, tube, profile}`. Removing a YAML crashes import with ImportError (loud guard, not silent shrinkage).
+4. **Oracle is frozen** — `tests/test_acceptance_groundtruth.py` asserts what is TRUE by construction. Never weaken an assertion; fix the code instead.
+5. **Sandbox isolation** — Custom code runs in subprocess with network blocked (socket guard), credentials stripped, and wall-clock timeout. Docstring matches enforced behavior.
+6. **Anchor vocabulary** — `_face_point` raises ValueError on unknown face names. Valid: `bottom_center`, `top_center`, `center`.
 
-## File Map
-| File | Role |
-|------|------|
-| `pipeline.py` | Main orchestrator — outer/inner loops, phase routing, DFM feedback |
-| `src/llm.py` | `PlannerAgent` — ADK session, `generate_cad_code()`, `regenerate_with_feedback()` |
-| `src/cad_executor.py` | `execute_cad_code()`, `export_solid()` |
-| `src/mesh_inspector.py` | Deterministic checks: watertight, dims, wall thickness, normals, degenerate faces |
-| `src/process_detector.py` | `detect_process()` — keyword scan → LLM fallback |
-| `src/model_config.py` | Model selection + ADK registry patch for Claude |
-| `src/logger.py` | `get_agent_logger()` — console + optional file output |
-| `agents/meshlib_agent/agent.py` | Inspector ADK agent + `run_inspection()` entry point |
-| `agents/meshlib_agent/sandbox_executor.py` | Subprocess wrapper + `run_invariant_baseline()` |
-| `agents/reviewer_agent/agent.py` | Adversarial reviewer + `run_adversarial_review()` |
-| `knowledge_base/manufacturing_profiles.json` | DFM rules for FDM, SLA, SLS, CNC, Injection Molding, Casting |
-| `fix.md` | Honest bug audit — root fixes vs heuristic compensators |
-
-## Active Gotchas (from fix.md)
-- Code extraction concatenates ALL python blocks in planner response — fragile if planner adds illustrative snippets
-- Z-floor filter (1.5mm in mesh_inspector.py) masks real blade-root thinning — should instead fix via planner prompt
-- Loop counts (5 outer, 4 inner) are compensators for upstream bugs — revisit after root fixes stabilize
-- `extract_expected_dimensions()` in llm.py is a fallback; primary path is `planner.get_design_dimensions()`
+## File Map (v3 layout)
+| Directory | Role |
+|-----------|------|
+| `pipeline.py` | Main orchestrator — outer loop, phase routing, gates |
+| `core/` | Runtime: `env.py`, `providers.py`, `llm_client.py`, `process_detector.py`, `sandbox.py`, `spec.py`, `intent_resolver.py`, `standards.py`, `config_loader.py` |
+| `primitives/` | Builders, compiler, registry, anchoring, param models |
+| `verification/` | `solid_inspector.py` (L2), `invariants.py`, `dfm.py`, `renderer.py` |
+| `config/` | YAML configs: `primitives/`, `process/`, `inspection_thresholds.yaml` |
+| `skills/` | Agent skill files: `planner/SKILL.md`, `vision/SKILL.md`, `reviewer/SKILL.md` |
+| `knowledge/` | Knowledge corpus for agents |
+| `agents/` | ADK agents: `planner_agent`, `reviewer_agent`, `vision_agent` |
+| `handoff/` | ForgeCAD bundle emitter + interactive viewer |
+| `tests/` | Unit/integration tests including frozen ground-truth oracle |
 
 ## Outputs Layout
 ```
 outputs/run_YYYYMMDD_HHMMSS/
   00_pipeline_execution.log
+  01_intent_resolution.json
+  01b_spec.json
   01_design_brief.json
-  02_outer{N}_planner_construction_plan.txt
-  03_outer{N}_inner{M}_planner_generated_cad_code.py
-  04_outer{N}_exported_model.{step,stl}
+  01c_decomposition.json
+  02_outer{N}_planner_output.txt
+  03_outer{N}_ir.json
+  04_outer{N}_model.{step,stl}
   05_outer{N}_static_inspection_ground_truth.json
-  06a_outer{N}_ai_inspector_findings.json
-  06b_outer{N}_ai_inspector_conversation_trace.json
-  06c_outer{N}_ai_generated_meshlib_script_{K}.py
+  06a_outer{N}_rendered_views/*.png
+  06b_outer{N}_vision_findings.json
   07_outer{N}_adversarial_reviewer_verdict.json
+  forgecad_bundle/manifest.json
 ```
 
 ## How to Run
 ```bash
-python pipeline.py          # interactive — prompts for design request
-# Set ANTHROPIC_API_KEY for Claude; else falls back to GEMINI_API_KEY
+# Docker (recommended)
+docker build -t agentic-cad-pipeline .
+docker run --env-file .env -v "$(pwd)/outputs:/app/outputs" agentic-cad-pipeline python pipeline.py "<prompt>"
+
+# Local (requires CadQuery, MeshLib, ADK, provider SDKs)
+python pipeline.py "<prompt>"
+python pipeline.py --interactive "<prompt>"
 ```
 
 ## Manufacturing Processes Supported
-FDM (2.0mm walls) · SLA (0.5mm) · SLS (0.7mm) · CNC (0.5mm, ±0.05mm tolerance) · Injection Molding (1.0mm, 2° draft) · Casting (3.0mm, 3° draft)
+FDM (2.0mm walls, 45° overhang, 30mm bridge) · SLA (0.5mm) · SLS (0.7mm) · CNC (0.5mm, ±0.05mm) · Injection Molding (1.0mm, 2° draft) · Casting (3.0mm, 3° draft)

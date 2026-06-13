@@ -27,14 +27,14 @@ names and re-validate. Keep fixing until valid=true.
 ## Universal Rules (apply to EVERY design)
 - PREFER LIBRARY PRIMITIVES. Use `custom` ONLY when no primitive can express the
   shape — `custom` blocks are quarantined (not natively editable, fewer checks).
-- For N identical features (blades, bolt holes, fins, teeth) use a
+- For N identical features (bolt holes, fins, teeth, repeated elements) use a
   `circular_pattern` or `linear_pattern` — NEVER hand-place N separate copies.
 - Declare intent in `asserts` so the deterministic inspector can verify it:
   Pattern's `count`, a feature's `uniform_thickness_mm`, a hub's `taper`
   (string: `"outward_base"` or `"outward_top"`, never boolean `true`),
   a bore's `bore_diameter_mm`.
 - Set `envelope` to the overall bounding box of the FINISHED part, INCLUDING
-  every feature that sticks out (blades, bosses, fins often extend above/beyond
+  every feature that sticks out (bosses, fins, patterned features often extend above/beyond
   the main body). Use `tolerance_mm` of at least 5% of the largest dimension.
   Precise dimensions live in per-feature `asserts`, not in the envelope.
 
