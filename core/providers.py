@@ -51,11 +51,11 @@ def _role_model(role: str, default: str) -> str:
 AGENT_MODELS: dict[str, str] = {
     "planner":            _role_model("planner", "claude-sonnet-4-20250514"),
     "inspector":          _role_model("inspector", "claude-sonnet-4-20250514"),
-    "intent":             _role_model("intent", "gemini-2.5-pro"),
-    "vision":             _role_model("vision", "gemini-2.5-pro"),
-    "reviewer":           _role_model("reviewer", "gemini-2.5-pro"),
-    "process_detector":   _role_model("process_detector", "gemini-2.5-flash"),
-    "dimension_extractor": _role_model("dimension_extractor", "gemini-2.5-flash"),
+    "intent":             _role_model("intent", "gemini-3.1-pro-preview"),
+    "vision":             _role_model("vision", "gemini-3.1-pro-preview"),
+    "reviewer":           _role_model("reviewer", "gemini-3.1-pro-preview"),
+    "process_detector":   _role_model("process_detector", "gemini-3.5-flash"),
+    "dimension_extractor": _role_model("dimension_extractor", "gemini-3.5-flash"),
 }
 
 # ── Failover preference (used when a role's primary model is unavailable) ────
@@ -64,7 +64,7 @@ FALLBACK_ORDER = ["anthropic", "google"]
 # Default model per provider for fallback (max-capability stable picks).
 PROVIDER_DEFAULT_MODEL = {
     "anthropic": "claude-sonnet-4-20250514",
-    "google":    "gemini-2.5-pro",
+    "google":    "gemini-3.1-pro-preview",
 }
 
 

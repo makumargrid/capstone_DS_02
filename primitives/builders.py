@@ -62,7 +62,12 @@ def build_tube(p: TubeParams, ctx=None) -> cq.Solid:
 
 
 def build_profile(p: ProfileParams, ctx=None) -> cq.Solid:
-    """2D sketch → operation: extrude (along +Z), revolve (around Z)."""
+    """2D sketch → operation: extrude (along +Z), revolve (around Z), sweep.
+
+    extrude: sketch along +Z for `depth` mm.
+    revolve: sketch revolved around Z axis for `revolve_angle` degrees.
+    sweep: sketch swept along `sweep_path` waypoints.
+    """
     sketch = p.sketch or {}
     stype = sketch.get("type", "circle")
     sp = sketch.get("params", {})
@@ -85,9 +90,24 @@ def build_profile(p: ProfileParams, ctx=None) -> cq.Solid:
     if p.operation == "extrude":
         result = wp.extrude(p.depth)
     elif p.operation == "revolve":
-        # Revolve around Z axis at x offset to create a solid
+        # Revolve around Z axis; use revolve_angle if set, else depth (backward compat)
         axis_offset = sketch.get("axis_offset", [0, 0])
-        result = wp.revolve(p.depth, (axis_offset[0], axis_offset[1], 0), (0, 0, 1))
+        revolve_angle = getattr(p, "revolve_angle", None)
+        if revolve_angle is None:
+            revolve_angle = float(p.depth)  # backward compat: depth used as angle
+        result = wp.revolve(revolve_angle, (axis_offset[0], axis_offset[1], 0),
+                            (0, 0, 1))
+    elif p.operation == "sweep":
+        path = getattr(p, "sweep_path", None) or sketch.get("sweep_path", [])
+        if not path or len(path) < 2:
+            raise ValueError("sweep requires a sweep_path with at least 2 waypoints")
+        # Build a proper Wire path from waypoints using edges
+        pts = [cq.Vector(pt[0], pt[1], pt[2]) for pt in path]
+        edges = []
+        for i in range(len(pts) - 1):
+            edges.append(cq.Edge.makeLine(pts[i], pts[i + 1]))
+        path_wire = cq.Wire.assembleEdges(edges)
+        result = wp.sweep(path_wire)
     else:
         raise ValueError(f"Unknown profile operation '{p.operation}'")
 

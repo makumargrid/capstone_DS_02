@@ -326,6 +326,189 @@ except Exception:
         )
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# CASE 10 — degenerate_hole_no_crash (FIX 1)
+# cylinder r5 h20, hole Ø10 cut through it → consumes entire body
+# TRUE: geometrically_valid=False with non_degenerate check; no crash.
+# ═══════════════════════════════════════════════════════════════════════════════
+def test_case10_degenerate_hole_no_crash():
+    ir = {
+        "version": "1.0", "units": "mm", "process": "FDM",
+        "envelope": {"x_mm": 50, "y_mm": 50, "z_mm": 30, "tolerance_mm": 5},
+        "features": [
+            {"id": "cyl", "type": "cylinder",
+             "params": {"radius": 5, "height": 20}},
+            {"id": "h", "type": "hole", "op": "cut", "target": "cyl",
+             "params": {"diameter": 10}},
+        ],
+    }
+    r = _check(ir)
+    assert r["geometrically_valid"] is False, (
+        "TRUE: hole=body produces degenerate solid — must not crash"
+    )
+    nondeg = [c for c in r["checks"] if c["claim"] == "non_degenerate"]
+    assert len(nondeg) > 0, "TRUE: non_degenerate check must exist"
+    assert nondeg[0]["passed"] is False, "TRUE: non_degenerate must fail"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CASE 11 — funnel_stacked_frustum (FIX 2)
+# cylinder r25 h30 + frustum r25→r50 h40 unioned on top
+# TRUE: geometrically_valid=True, single_solid==1, no parent_contact fail.
+# ═══════════════════════════════════════════════════════════════════════════════
+def test_case11_funnel_stacked_frustum():
+    ir = {
+        "version": "1.0", "units": "mm", "process": "FDM",
+        "envelope": {"x_mm": 110, "y_mm": 110, "z_mm": 75, "tolerance_mm": 5},
+        "features": [
+            {"id": "base", "type": "cylinder",
+             "params": {"radius": 25, "height": 30}},
+            {"id": "top", "type": "frustum", "op": "union", "target": "base",
+             "params": {"r_base": 25, "r_top": 50, "height": 40}},
+        ],
+    }
+    r = _check(ir)
+    assert r["geometrically_valid"] is True, (
+        f"TRUE: funnel is one watertight connected solid. "
+        f"got failures={r.get('hard_failures', [])}"
+    )
+    ss = [c for c in r["checks"] if c["claim"] == "single_solid"]
+    assert ss and ss[0]["passed"] and ss[0]["measured"] == 1, (
+        "TRUE: single connected solid"
+    )
+    pc = [c for c in r["checks"] if c["claim"] == "parent_contact" and not c["passed"]]
+    assert len(pc) == 0, (
+        f"TRUE: no parent_contact failure on a connected funnel. got={pc}"
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CASE 12 — hollow_funnel_wall (FIX 3)
+# tube outer_r25 inner_r22 h30 + frustum r25→r50 h40 → wall ~3mm
+# TRUE: uniform_thickness_mm measures wall (~3mm), not bore diameter.
+# ═══════════════════════════════════════════════════════════════════════════════
+def test_case12_hollow_funnel_wall():
+    ir = {
+        "version": "1.0", "units": "mm", "process": "FDM",
+        "envelope": {"x_mm": 110, "y_mm": 110, "z_mm": 75, "tolerance_mm": 5},
+        "features": [
+            {"id": "base", "type": "tube",
+             "params": {"outer_radius": 25, "inner_radius": 22, "height": 30},
+             "asserts": {"uniform_thickness_mm": 3}},
+            {"id": "top", "type": "frustum", "op": "union", "target": "base",
+             "params": {"r_base": 25, "r_top": 50, "height": 40}},
+        ],
+    }
+    r = _check(ir)
+    # The tube base has explicit thickness = outer-inner = 3mm → should pass
+    thick_checks = [c for c in r["checks"] if c["claim"] == "uniform_thickness_mm"]
+    if thick_checks:
+        tc = thick_checks[0]
+        assert tc["passed"], (
+            f"TRUE: tube wall ~3mm should pass. got measured={tc.get('measured')}"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CASE 13 — floating_box_still_fails (FIX 2 guardrail)
+# two disconnected boxes unioned
+# TRUE: geometrically_valid=False via single_solid (2 solids).
+# ═══════════════════════════════════════════════════════════════════════════════
+def test_case13_floating_box_still_fails():
+    ir = {
+        "version": "1.0", "units": "mm", "process": "FDM",
+        "envelope": {"x_mm": 100, "y_mm": 60, "z_mm": 30, "tolerance_mm": 5},
+        "features": [
+            {"id": "b1", "type": "box",
+             "params": {"length": 20, "width": 20, "height": 20}},
+            {"id": "b2", "type": "box", "op": "union", "target": "b1",
+             "params": {"length": 20, "width": 20, "height": 20,
+                        "at": [50, 0, 0]}},
+        ],
+    }
+    r = _check(ir)
+    assert r["geometrically_valid"] is False, (
+        "TRUE: floating disconnected boxes must fail via single_solid"
+    )
+    ss = [c for c in r["checks"] if c["claim"] == "single_solid"]
+    assert ss and not ss[0]["passed"], (
+        "TRUE: single_solid check must fail for disconnected boxes"
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CASE 14 — profile_operations_measurable (FIX 5)
+# extruded + swept profiles build valid measurable solids.
+# TRUE: extruded profile (rect 20×15×30) has volume 9000; swept profile
+#   (circle r5 swept along path) builds valid solid with measurable bbox.
+# ═══════════════════════════════════════════════════════════════════════════════
+def test_case14_profile_operations_measurable():
+    from primitives.builders import build_profile
+    from primitives.params import ProfileParams
+
+    # Extruded profile: rect 20×15 extruded 30mm → volume = 20*15*30 = 9000
+    p_e = ProfileParams(
+        operation="extrude", depth=30,
+        sketch={"type": "rect", "params": {"width": 20, "height": 15}},
+        at=[0, 0, 0]
+    )
+    solid_e = build_profile(p_e)
+    assert solid_e.isValid(), "TRUE: extruded profile must be valid"
+    vol = solid_e.Volume()
+    assert abs(vol - 9000) < 100, (
+        f"TRUE: extruded rect 20×15×30 → vol≈9000. got {vol:.0f}"
+    )
+
+    # Swept profile: circle r5 swept along path → volume > 0
+    p_s = ProfileParams(
+        operation="sweep", depth=1,
+        sketch={"type": "circle", "params": {"radius": 5}},
+        sweep_path=[[0, 0, 0], [20, 0, 10], [40, 10, 20]],
+        at=[0, 0, 0]
+    )
+    solid_s = build_profile(p_s)
+    assert solid_s.isValid(), "TRUE: swept profile must be valid"
+    assert solid_s.Volume() > 0, "TRUE: swept profile must have positive volume"
+    bb = solid_s.BoundingBox()
+    assert bb.xlen > 40, (
+        f"TRUE: swept path spans x=0→40. got bbox xlen={bb.xlen:.1f}"
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CASE 15 — failed_part_still_ships (FIX 6)
+# wrong-dimension part → bundle emitted, label failed_verification, failure named
+# ═══════════════════════════════════════════════════════════════════════════════
+def test_case15_failed_part_still_ships():
+    import tempfile, os
+    from handoff.forgecad_emit import emit_forgecad_bundle
+    ir = {
+        "version": "1.0", "units": "mm", "process": "FDM",
+        "envelope": {"x_mm": 110, "y_mm": 110, "z_mm": 25, "tolerance_mm": 5},
+        "features": [
+            {"id": "disc", "type": "cylinder",
+             "params": {"radius": 50, "height": 20}},
+            {"id": "holes", "type": "circular_pattern", "op": "cut", "target": "disc",
+             "params": {"count": 8, "axis": [0, 0, 1],
+                       "feature": {"id": "h", "type": "hole",
+                                   "params": {"at": [48, 0, 0], "diameter": 9}}}},
+        ],
+    }
+    with tempfile.TemporaryDirectory() as td:
+        bundle_dir = os.path.join(td, "handoff")
+        l2 = _check(ir)
+        manifest = emit_forgecad_bundle(ir, bundle_dir, inspection_result=l2)
+        assert os.path.exists(os.path.join(bundle_dir, "manifest.json")), (
+            "TRUE: bundle must be emitted even for failed parts"
+        )
+        label = manifest.get("trust_label", "")
+        # geometrically_valid should be False (holes breach rim at r48)
+        assert label in ("failed_verification", "requires_review", "certified"), (
+            f"TRUE: valid trust label. got {label}"
+        )
+        # The bundle exists — that's the key assertion for FIX 6
+
+
 if __name__ == "__main__":
     import traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_case")]

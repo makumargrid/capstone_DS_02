@@ -301,6 +301,7 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
             if attempt == MAX_OUTER:
                 _metrics["final_verdict"] = "invalid_ir_exhausted"
                 _save_metrics(); _save_streak()
+                _emit_failed_handoff(ir, out, "failed_verification", log=log)
                 log.error("[L1] Out of attempts with invalid IR."); _report(out, _metrics); return out
             text, ir = planner.revise_ir(
                 "Your IR failed validation. Fix these node-keyed errors and "
@@ -320,6 +321,7 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
                 if attempt == MAX_OUTER:
                     _metrics["final_verdict"] = "compile_timeout_exhausted"
                     _save_metrics(); _save_streak()
+                    _emit_failed_handoff(ir, out, "failed_verification", log=log)
                     log.error("[COMPILE] Out of attempts."); _report(out, _metrics); return out
                 text, ir = planner.revise_ir(
                     f"Compilation timed out after {COMPILE_TIMEOUT_S}s. Simplify the geometry or "
@@ -333,6 +335,7 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
             if attempt == MAX_OUTER:
                 _metrics["final_verdict"] = "compile_exhausted"
                 _save_metrics(); _save_streak()
+                _emit_failed_handoff(ir, out, "failed_verification", log=log)
                 log.error("[COMPILE] Out of attempts."); _report(out, _metrics); return out
             text, ir = planner.revise_ir(
                 f"Compilation failed. {readable}\n\n"
@@ -489,6 +492,7 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
         if decision == "HALT":
             _metrics["final_verdict"] = "halt"
             _save_metrics(); _save_streak()
+            _emit_failed_handoff(ir, out, "failed_verification", log=log)
             log.error("🛑 HALT — human review required."); _report(out, _metrics); return out
         # REDESIGN — with doom-loop detection for repeated node/claim failures
         rec = verdict["recommendations_for_planner"]
@@ -527,12 +531,14 @@ def run_pipeline(prompt: str, output_base_dir: str = "outputs", interactive: boo
         if attempt == MAX_OUTER:
             _metrics["final_verdict"] = "redesign_exhausted"
             _save_metrics(); _save_streak()
+            _emit_failed_handoff(ir, out, "failed_verification", log=log)
             log.error("Out of attempts; not approved."); _report(out, _metrics); return out
         text, ir = planner.revise_ir(rec)
         _save(out, f"02_outer{attempt}_planner_revision.txt", text)
 
     _metrics["final_verdict"] = "max_iterations"
     _save_metrics(); _save_streak()
+    _emit_failed_handoff(ir, out, "failed_verification", log=log)
     log.warning("Completed all outer iterations without APPROVED.")
     _report(out, _metrics); return out
 
@@ -623,6 +629,27 @@ def _run_assembly(planner, prompt, spec, components, out, log, interactive, min_
                                             or ("Fix these failed checks: " + "; ".join(l2["hard_failures"][:3])))
         _save(out, f"02_outer{attempt}_planner_revision.txt", text)
     _report(out); return out
+
+
+def _emit_failed_handoff(ir: dict | None, out_dir: str, label: str,
+                          failed_check: str = "", log=None):
+    """Emit a handoff bundle with a truthful label even on exhaustion paths."""
+    if ir is None:
+        if log:
+            log.warning(f"[HANDOFF] Cannot emit bundle — no IR available (label={label})")
+        return
+    try:
+        from handoff import emit_forgecad_bundle
+        from verification import inspect_ir
+        bundle = os.path.join(out_dir, "forgecad_handoff")
+        l2 = inspect_ir(ir)
+        manifest = emit_forgecad_bundle(ir, bundle, inspection_result=l2)
+        if log:
+            log.info(f"[HANDOFF] Emitted {label} bundle to {bundle} (trust_label={manifest.get('trust_label','?')})")
+        return manifest
+    except Exception as e:
+        if log:
+            log.warning(f"[HANDOFF] Failed to emit {label} bundle: {e}")
 
 
 def _report(out_dir: str, metrics: dict | None = None):

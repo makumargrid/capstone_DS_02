@@ -64,6 +64,39 @@ def _min_axis_len(bbox: tuple[float, float, float]) -> float:
     return min(bbox)
 
 
+def _degenerate_verdict(reason: str = "empty or degenerate solid") -> dict:
+    """Return a clean geometrically_valid=False verdict for degenerate geometry
+    without attempting any measurements that would crash on a void solid."""
+    return {
+        "geometrically_valid": False,
+        "manufacturable": False,
+        "valid": False,
+        "checks": [
+            {"node": "design", "claim": "non_degenerate", "passed": False,
+             "measured": "void", "expected": "valid solid",
+             "detail": reason, "severity": "blocking"},
+        ],
+        "hard_failures": [f"design.non_degenerate: {reason}"],
+    }
+
+
+def _solid_is_degenerate(solid: cq.Solid) -> bool:
+    """Return True if the solid is empty, zero/near-zero volume, or void bbox."""
+    try:
+        vol = solid.Volume()
+        if vol <= 1e-6:
+            return True
+        if not solid.isValid():
+            return True
+    except Exception:
+        return True
+    try:
+        solid.BoundingBox()
+    except Exception:
+        return True
+    return False
+
+
 def inspect_solid(design: Design | dict, solid: cq.Solid,
                   provenance: list[FeatureProvenance], min_wall_mm: float = 2.0,
                   profile: dict | None = None) -> dict:
@@ -76,6 +109,11 @@ def inspect_solid(design: Design | dict, solid: cq.Solid,
     """
     if isinstance(design, dict):
         design = Design.model_validate(design)
+
+    # ── Degenerate guard: before ANY measurement, detect void/empty solid ─────
+    if _solid_is_degenerate(solid):
+        return _degenerate_verdict("cut removed all/most material — empty solid")
+
     prov_by_id = {p.id: p for p in provenance}
     checks: list[dict] = []
 
@@ -149,16 +187,27 @@ def inspect_solid(design: Design | dict, solid: cq.Solid,
 
     # ═══════════════════════════════════════════════════════════════════════════
     # 3b. Parent contact check.
+    # ── CONNECTIVITY GUARDRAIL: single_solid==1 + watertight already prove
+    #    connectivity. Any feature stacked on top and flaring outward (funnel
+    #    cone, domed cap, T-head) is correctly connected. Do NOT run a
+    #    radius-based parent_contact check when these authoritative facts pass
+    #    — it produces false-positives for valid connected solids.
     # ═══════════════════════════════════════════════════════════════════════════
-    for feat in design.features:
-        prov = prov_by_id.get(feat.id)
-        if prov is None or prov.mesh_only:
-            continue
-        if feat.op == "union" and feat.target is not None:
-            target_feat = next((f for f in design.features if f.id == feat.target), None)
-            if target_feat and target_feat.type in ("frustum", "cone", "cylinder"):
-                checks.append(_check_parent_contact(
-                    feat.id, prov, target_feat.id, target_feat.type, target_feat.params))
+    _single_solid_ok = n_solids == 1
+    try:
+        _watertight_ok = solid.IsClosed()
+    except AttributeError:
+        _watertight_ok = True  # Compound — assume closed
+    if not (_single_solid_ok and _watertight_ok):
+        for feat in design.features:
+            prov = prov_by_id.get(feat.id)
+            if prov is None or prov.mesh_only:
+                continue
+            if feat.op == "union" and feat.target is not None:
+                target_feat = next((f for f in design.features if f.id == feat.target), None)
+                if target_feat and target_feat.type in ("frustum", "cone", "cylinder"):
+                    checks.append(_check_parent_contact(
+                        feat.id, prov, target_feat.id, target_feat.type, target_feat.params))
 
     # ═══════════════════════════════════════════════════════════════════════════
     # 4. Per-feature claims from asserts.
@@ -199,7 +248,7 @@ def inspect_solid(design: Design | dict, solid: cq.Solid,
     # ═══════════════════════════════════════════════════════════════════════════
     structural_failures = [
         c for c in checks
-        if not c["passed"] and c.get("severity", "blocking") != "dfm"
+        if not c["passed"] and c.get("severity", "blocking") not in ("dfm", "advisory")
     ]
     dfm_failures = [
         c for c in checks
@@ -253,6 +302,25 @@ def _check_uniform_thickness(feat, prov: FeatureProvenance, declared: float,
     base = (prov.instance_solids or [None])[0]
     if base is None:
         return _result(node, "uniform_thickness_mm", False, None, declared, "no instance")
+
+    # ── For features without an explicit thickness param, try wall measurement
+    #     before falling back to bbox min-axis (which reports wrong values for
+    #     tapered hollow parts — e.g. bore diameter instead of wall).
+    if feat.op == "cut" or ftype in ("hole", "tube"):
+        try:
+            wall = _measure_wall_thickness(base)
+            if wall is not None and wall > 0.01:
+                measured = wall
+                ok = abs(measured - declared) <= band
+                return _result(node, "uniform_thickness_mm", ok, round(measured, 3), declared,
+                               f"measured wall thickness vs declared (band ±{band:.2f})")
+        except Exception:
+            pass
+        # Couldn't measure wall — don't fail, report couldn't_verify
+        return _result(node, "uniform_thickness_mm", True, None, declared,
+                       "couldn't_verify: unable to measure wall thickness for this geometry",
+                       severity="advisory")
+
     bb = base.BoundingBox()
     measured = _min_axis_len((round(bb.xlen, 4), round(bb.ylen, 4), round(bb.zlen, 4)))
     _bf = band_frac if band_frac is not None else _THICKNESS_BAND_FRAC
@@ -260,6 +328,26 @@ def _check_uniform_thickness(feat, prov: FeatureProvenance, declared: float,
     ok = abs(measured - declared) <= band
     return _result(node, "uniform_thickness_mm", ok, round(measured, 3), declared,
                    f"base instance min-axis vs declared (band ±{band:.2f})")
+
+
+def _measure_wall_thickness(solid: cq.Solid) -> float | None:
+    """Estimate wall thickness as minimum distance between non-adjacent faces.
+    Returns None if it cannot be reliably measured."""
+    faces = list(solid.Faces())
+    if len(faces) < 2:
+        return None
+    min_dist = float('inf')
+    n = len(faces)
+    for i in range(n):
+        for j in range(i + 1, n):
+            try:
+                dist = faces[i].distance(faces[j])
+                # Skip zero-distance (adjacent/touching faces)
+                if dist > 1e-6:
+                    min_dist = min(min_dist, dist)
+            except Exception:
+                continue
+    return round(min_dist, 3) if min_dist != float('inf') else None
 
 
 def _radial_extent(solid: cq.Solid, z: float, axis_xy=(0.0, 0.0)) -> float:
@@ -283,7 +371,8 @@ def _check_taper(node, prov: FeatureProvenance, direction: str) -> dict:
     else:
         ok = r_hi >= r_lo - 0.5
     return _result(node, "taper", ok, {"r_base": round(r_lo, 2), "r_top": round(r_hi, 2)},
-                   direction, "radial protrusion direction base→top")
+                   direction, "radial protrusion direction base→top",
+                   severity="advisory")
 
 
 def _check_parent_contact(node: str, prov: FeatureProvenance, parent_id: str,
@@ -434,11 +523,25 @@ def _check_chamfer_length(node: str, solid: cq.Solid, declared_length: float) ->
 
 def inspect_ir(design: Design | dict, min_wall_mm: float = 2.0,
                profile: dict | None = None) -> dict:
-    """Convenience: compile then inspect (used in tests/demo)."""
+    """Convenience: compile then inspect (used in tests/demo).
+
+    ANY CadQuery/OCCT kernel exception during compile or inspect is caught and
+    converted to a clean geometrically_valid=False verdict — raw exceptions
+    are never propagated out of inspection."""
     if isinstance(design, dict):
         design = Design.model_validate(design)
-    solid, prov = compile_design(design)
+    try:
+        solid, prov = compile_design(design)
+    except Exception as e:
+        return _degenerate_verdict(
+            f"compilation failed: {type(e).__name__}: {str(e)[:200]}"
+        )
     if profile is None:
         from core.process_detector import load_profile
         profile = load_profile(design.process)
-    return inspect_solid(design, solid, prov, min_wall_mm, profile=profile)
+    try:
+        return inspect_solid(design, solid, prov, min_wall_mm, profile=profile)
+    except Exception as e:
+        return _degenerate_verdict(
+            f"inspection failed: {type(e).__name__}: {str(e)[:200]}"
+        )

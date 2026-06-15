@@ -319,10 +319,38 @@ def approve(rid: str, body: dict, _=Depends(_auth)):
     return {"run_id": rid, "accepted": accepted, "accepted_by": "api"}
 
 
+# ── Phase detection helper ──────────────────────────────────────────────────
+def _detect_phase(artifacts: list[str], state: str) -> str:
+    """Determine the current pipeline phase from state + artifact names."""
+    if state == "failed":
+        return "failed"
+    if state in ("approved", "completed"):
+        return "done"
+    if state == "waiting_for_user":
+        # Check what's been produced to know *which* wait
+        if any(a.startswith("07_") for a in artifacts):
+            return "review"
+        if any(a.startswith("05_") for a in artifacts):
+            return "inspect"
+        if any("ir.json" in a for a in artifacts):
+            return "plan"
+        return "intent"
+    # state == "running"
+    if any(a.startswith("07_") and "reviewer_verdict" in a for a in artifacts):
+        return "review"
+    if any(a.startswith("05_") and "solid_inspection" in a for a in artifacts):
+        return "inspect"
+    if any(a.startswith("04_") and "model" in a for a in artifacts):
+        return "compile"
+    if any("ir.json" in a for a in artifacts):
+        return "plan"
+    return "intent"
+
+
 # ── Phase 4c — live progress stream ─────────────────────────────────────────
 @app.websocket("/ws/designs/{rid}/stream")
 async def stream(ws: WebSocket, rid: str):
-    """Stream status frames until the run reaches a terminal state."""
+    """Stream enriched status frames until the run reaches a terminal state."""
     await ws.accept()
     try:
         last = None
@@ -332,9 +360,18 @@ async def stream(ws: WebSocket, rid: str):
             if not r:
                 await ws.send_json({"error": "unknown run_id"}); break
             d = r["dir"]
-            frame = {"run_id": rid, "state": r["state"],
-                     "artifacts": sorted(os.listdir(d)) if os.path.isdir(d) else [],
-                     "pending_question": r.get("pending_question")}
+            arts = sorted(os.listdir(d)) if os.path.isdir(d) else []
+            phase = _detect_phase(arts, r["state"])
+            frame = {
+                "run_id": rid,
+                "state": r["state"],
+                "phase": phase,
+                "artifacts": arts,
+                "pending_question": r.get("pending_question"),
+                "qa_history": r.get("qa_history", []),
+                "error": r.get("error"),
+                "report_url": f"/designs/{rid}/report" if "report.html" in arts else None,
+            }
             if frame != last:
                 await ws.send_json(frame); last = frame
             if r["state"] in ("approved", "completed", "failed"):

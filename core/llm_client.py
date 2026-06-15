@@ -29,9 +29,9 @@ def call_llm(model_name: str, contents: str, system_prompt: str | None = None) -
     """Generate content with retries + Gemini failover. Returns the text."""
     models_to_try = [model_name]
     if "gemini" not in model_name:
-        models_to_try.append("gemini-2.5-pro")
-    if "gemini-2.5-flash" not in models_to_try:
-        models_to_try.append("gemini-2.5-flash")
+        models_to_try.append("gemini-3.1-pro-preview")
+    if "gemini-3.5-flash" not in models_to_try:
+        models_to_try.append("gemini-3.5-flash")
 
     last_error = None
     for model in models_to_try:

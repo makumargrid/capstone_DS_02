@@ -52,10 +52,16 @@ class SphereParams(_Base):
 
 
 class ProfileParams(_Base):
-    """2D sketch + operation: extrude, revolve, sweep, loft."""
+    """2D sketch + operation: extrude, revolve, sweep.
+    extrude: sketch along +Z for `depth` mm.
+    revolve: sketch revolved around Z axis for `revolve_angle` degrees (default 360).
+    sweep: sketch swept along `sweep_path` waypoints for total path length.
+    """
     operation: str = "extrude"
-    depth: float = Field(gt=0)
+    depth: float = Field(default=1.0, gt=0)
     sketch: dict[str, Any] = Field(default_factory=dict)
+    revolve_angle: float = Field(default=360.0, gt=0, le=360)
+    sweep_path: Optional[list[list[float]]] = Field(default=None)
     # sketch types: circle {radius}, rect {width,height}, polygon {sides,radius}
 
 

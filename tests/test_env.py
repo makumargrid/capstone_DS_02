@@ -61,15 +61,15 @@ def test_bootstrap_env_aliases_google_to_gemini():
 def test_provider_model_can_be_overridden_by_role_env():
     saved = {k: os.environ.get(k) for k in os.environ}
     try:
-        os.environ["PLANNER_MODEL"] = "gemini-2.5-flash"
+        os.environ["PLANNER_MODEL"] = "gemini-3.5-flash"
         os.environ["GOOGLE_API_KEY"] = "google-key"
         os.environ.pop("ANTHROPIC_API_KEY", None)
 
         import core.providers as providers
         importlib.reload(providers)
 
-        assert providers.AGENT_MODELS["planner"] == "gemini-2.5-flash"
-        assert providers.PROVIDER_DEFAULT_MODEL["google"] == "gemini-2.5-pro"
+        assert providers.AGENT_MODELS["planner"] == "gemini-3.5-flash"
+        assert providers.PROVIDER_DEFAULT_MODEL["google"] == "gemini-3.1-pro-preview"
     finally:
         _restore_env(saved)
         if "core.providers" in sys.modules:
