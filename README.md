@@ -21,7 +21,7 @@ Instead of generating free-form CadQuery code each loop, the **Planner Agent** e
 │         → reviewer → coverage gate → handoff            │
 ├──────────────────┬──────────────────┬───────────────────┤
 │  Planner Agent   │ Vision Verifier  │  Reviewer Agent   │
-│  (Claude→Gemini) │  (Gemini Pro)    │  (deterministic   │
+│  (Claude→Gemini) │ (Gemini 3.1 Pro) │  (deterministic   │
 │  emits IR        │  advisory L3     │   first, L2 GT)   │
 ├──────────────────┴──────────────────┴───────────────────┤
 │           Verification Layers (verification/)            │
@@ -73,10 +73,10 @@ Instead of generating free-form CadQuery code each loop, the **Planner Agent** e
 | Role | Primary Model | Rationale |
 |---|---|---|
 | **Planner** | Claude Sonnet 4 | Precise structured IR, strict schema, tool use |
-| **Vision Verifier** | Gemini 2.5 Pro | Native multimodal (rendered views) |
-| **Reviewer** | Gemini 2.5 Pro | Analytical reasoning (deterministic-first; LLM only narrates) |
-| **Intent Extraction** | Gemini 2.5 Pro | Different family than planner — the examiner doesn't share the student's blind spots |
-| **Process Detection** | Gemini 2.5 Flash | Cheap classification |
+| **Vision Verifier** | Gemini 3.1 Pro | Native multimodal (rendered views) |
+| **Reviewer** | Gemini 3.1 Pro | Analytical reasoning (deterministic-first; LLM only narrates) |
+| **Intent Extraction** | Gemini 3.1 Pro | Different family than planner — the examiner doesn't share the student's blind spots |
+| **Process Detection** | Gemini 3.5 Flash | Cheap classification |
 | **MeshLib Inspector** | Claude Sonnet 4 | Precise code generation with tool use |
 
 **To swap any role's model:** change one string in `AGENT_MODELS` (in `core/providers.py`).  
@@ -105,7 +105,7 @@ GEMINI_API_KEY=AIza...
 
 # Optional: override specific role models
 # PLANNER_MODEL=claude-sonnet-4-20250514
-# VISION_MODEL=gemini-2.5-pro
+# VISION_MODEL=gemini-3.1-pro-preview
 
 # Optional: require API key for the web UI (leave unset for local dev)
 # HARNESS_API_KEY=my-secret-key

@@ -343,7 +343,7 @@ fragility was model naming: provider defaults had drifted to preview/non-standar
 `GEMINI_API_KEY <-> GOOGLE_API_KEY`, and exposes only secret-safe provider presence.
 `pipeline.py`, `api/app.py`, `core/providers.py`, and `core/llm_client.py` bootstrap
 before resolving models. `core/providers.py` now uses stable defaults
-(`gemini-2.5-pro`, `gemini-2.5-flash`, `claude-sonnet-4-20250514`) and supports
+(`gemini-3.1-pro-preview`, `gemini-3.5-flash`, `claude-sonnet-4-20250514`) and supports
 per-role overrides (`PLANNER_MODEL`, `INTENT_MODEL`, `VISION_MODEL`, etc.), preserving
 the one-file provider swap dial without hard-coding future model changes.
 

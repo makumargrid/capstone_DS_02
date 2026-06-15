@@ -103,8 +103,8 @@ No agent or pipeline code changes for any of these.
 
 **Model routing:**
 - **Claude** → planner + meshlib inspector (precise structured IR, strict schema, tool use).
-- **Gemini Pro** → vision verifier, reviewer, intent extraction, decompose (analytical + multimodal).
-- **Gemini Flash** → cheap process/dimension classification.
+- **Gemini 3.1 Pro** → vision verifier, reviewer, intent extraction, decompose (analytical + multimodal).
+- **Gemini 3.5 Flash** → cheap process/dimension classification.
 
 ---
 

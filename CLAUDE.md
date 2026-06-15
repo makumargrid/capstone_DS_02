@@ -9,7 +9,7 @@ Three AI agents (Planner, Vision Verifier, Reviewer) are constrained by determin
 | Component | Role |
 |-----------|------|
 | Google ADK | Agent orchestration framework |
-| Claude Sonnet 4 / Gemini 2.5 Pro | Multi-model (capability-routed per role via `core/providers.py`) |
+| Claude Sonnet 4 / Gemini 3.1 Pro | Multi-model (capability-routed per role via `core/providers.py`) |
 | CadQuery | Deterministic solid generation from IR (Python CAD kernel) |
 | MeshLib | Mesh inspection + repair (C++ bindings) |
 | config/process/manufacturing_profiles.json | DFM constraints for 6 processes |
